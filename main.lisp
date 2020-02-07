@@ -54,9 +54,14 @@
     (let ((time (/ pos *sample-rate*)))
       (sin (* freq 2 pi time)))))
 
+(defun gen-rand (pos)
+  (1- (random 2.0)))
+
 (defun gen-samples (gen samples)
-  (let ((timestep (/ 1 *sample-rate*)))
-    (aops:generate gen samples :position)))
+  (let ((sample-array (make-array samples)))
+    (loop for i from 0 to (1- samples)
+          do (setf (aref sample-array i) (funcall gen i)))
+    sample-array))
 
 (defun note-to-freq (note)
   (let ((k (- (position note *music-scale*)
@@ -73,7 +78,7 @@
       (al:source-stop source))))
 
 ;; white noise
-;; (play-array (aops:generate (lambda () (1- (random 2.0))) 44100))
+;; (play-array (gen-samples #'gen-rand 44100))
 ;; 440hz
 ;; (play-array (gen-samples (gen-sine 440) 44100))
 ;; note A

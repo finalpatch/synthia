@@ -6,5 +6,4 @@
   :depends-on (cffi cl-openal cl-alc)
   :serial t
   :components
-  ((:file "packages")
-   (:file "main")))
+  ((:file "main")))

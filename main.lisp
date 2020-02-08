@@ -56,7 +56,8 @@
 
 (defparameter *music-scale*
   #(:C  :C#  :D  :D#  :E  :F  :F#  :G  :G#  :A  :A#  :B
-    :C2 :C2# :D2 :D2# :E2 :F2 :F2# :G2 :G2# :A2 :A2# :B2))
+    :C2 :C2# :D2 :D2# :E2 :F2 :F2# :G2 :G2# :A2 :A2# :B2
+    :C3 :C3# :D3 :D3# :E3))
 
 (defconstant twelveth-root-of-2 (expt 2 (/ 1 12)))
 
@@ -91,6 +92,13 @@
     ((sdl2:scancode= scancode :scancode-b) :G)
     ((sdl2:scancode= scancode :scancode-n) :A)
     ((sdl2:scancode= scancode :scancode-m) :B)
+
+    ((sdl2:scancode= scancode :scancode-s) :C#)
+    ((sdl2:scancode= scancode :scancode-d) :D#)
+    ((sdl2:scancode= scancode :scancode-g) :F#)
+    ((sdl2:scancode= scancode :scancode-h) :G#)
+    ((sdl2:scancode= scancode :scancode-j) :A#)
+    
     ((sdl2:scancode= scancode :scancode-q) :C2)
     ((sdl2:scancode= scancode :scancode-w) :D2)
     ((sdl2:scancode= scancode :scancode-e) :E2)
@@ -98,35 +106,59 @@
     ((sdl2:scancode= scancode :scancode-t) :G2)
     ((sdl2:scancode= scancode :scancode-y) :A2)
     ((sdl2:scancode= scancode :scancode-u) :B2)
+
+    ((sdl2:scancode= scancode :scancode-2) :C2#)
+    ((sdl2:scancode= scancode :scancode-3) :D2#)
+    ((sdl2:scancode= scancode :scancode-5) :F2#)
+    ((sdl2:scancode= scancode :scancode-6) :G2#)
+    ((sdl2:scancode= scancode :scancode-7) :A2#)
+    
+    ((sdl2:scancode= scancode :scancode-i) :C3)
+    ((sdl2:scancode= scancode :scancode-o) :D3)
+    ((sdl2:scancode= scancode :scancode-p) :E3)
+    
+    ((sdl2:scancode= scancode :scancode-9) :C3#)
+    ((sdl2:scancode= scancode :scancode-0) :D3#)
+
     (t :R)))
 
 (defun keyboard (&optional (synth 'osc-square))
   (sdl2:with-init (:everything)
     (sdl2:with-window (win :flags '(:shown))
-      (with-al-context
-        (al:with-source (source)
-          (al:with-buffers (*buffer-count* buffers)
-            (let ((freq 0) (pos 0))
-              ;; start playing
-              (setf pos (stream-buffers synth freq pos source buffers))
-              (format t "Beginning main loop.~%") (finish-output)
-              (sdl2:with-event-loop  (:method :poll)
-                (:keydown (:keysym keysym)
-                          (let ((scancode (sdl2:scancode-value keysym)))
-                            (setf freq (note-to-freq (scancode-to-note scancode)))))
-                (:keyup (:keysym keysym)
-                        (let ((scancode (sdl2:scancode-value keysym)))
-                          ;; if equal to last pressed key, set to silence
-                          (when (= freq (note-to-freq (scancode-to-note scancode)))
-                            (setf freq 0)))
-                        (when (sdl2:scancode= (sdl2:scancode-value keysym) :scancode-escape)
-                          (sdl2:push-event :quit)))
-                (:idle ()
-                       (let ((processed (al:get-source source :buffers-processed)))
-                         (when (> processed 0)
-                           (let ((free-buffers (al:source-unqueue-buffers source processed)))
-                             ;; keep playing
-                             (setf pos (stream-buffers synth freq pos source free-buffers))
-                             (format t "queue buffers ~a~%" processed) (finish-output)))))
-                (:quit () t))
-              (format t "Exiting main loop.~%") (finish-output))))))))
+      (sdl2:with-renderer (ren win)
+        (with-al-context
+            (al:with-source (source)
+              (al:with-buffers (*buffer-count* buffers)
+                (let ((freq 0)
+                      (pos 0)
+                      (tex (sdl2:create-texture-from-surface ren
+                            (sdl2-image:load-image "keyboard.png"))))
+                  ;; start playing
+                  (setf pos (stream-buffers synth freq pos source buffers))
+                  (format t "Beginning main loop.~%") (finish-output)
+                  (sdl2:with-event-loop  (:method :poll)
+                    (:keydown (:keysym keysym)
+                              (let ((scancode (sdl2:scancode-value keysym)))
+                                (setf freq (note-to-freq (scancode-to-note scancode)))))
+                    (:keyup (:keysym keysym)
+                            (let ((scancode (sdl2:scancode-value keysym)))
+                              ;; if equal to last pressed key, set to silence
+                              (when (= freq (note-to-freq (scancode-to-note scancode)))
+                                (setf freq 0)))
+                            (when (sdl2:scancode= (sdl2:scancode-value keysym)
+                                                  :scancode-escape)
+                              (sdl2:push-event :quit)))
+                    (:idle ()
+                           (let ((processed (al:get-source source :buffers-processed)))
+                             (when (> processed 0)
+                               (let ((free-buffers
+                                       (al:source-unqueue-buffers source processed)))
+                                 ;; keep playing
+                                 (setf pos
+                                       (stream-buffers synth freq pos source free-buffers))
+                                 (format t "queue buffers ~a~%" processed) (finish-output))))
+                           (sdl2:render-clear ren)
+                           (sdl2:render-copy ren tex)
+                           (sdl2:render-present ren))
+                    (:quit () t))
+                  (format t "Exiting main loop.~%") (finish-output)))))))))

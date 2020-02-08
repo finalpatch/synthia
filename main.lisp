@@ -1,8 +1,6 @@
 (cl:defpackage :synthia
   (:use :cl)
-  (:export
-   :gen-sine :gen-rand :gen-samples :note-to-freq
-   :play-samples :play-sequence :keyboard))
+  (:export :keyboard))
 
 (in-package :synthia)
 

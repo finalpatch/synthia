@@ -93,6 +93,30 @@
             do (play-samples-in-al-context
                 (note (car e) (cadr e))))))
 
+;; -------------------------------------------------------------
+
+(defun keyboard ()
+  (sdl2:with-init (:everything)
+    (sdl2:with-window (win :flags '(:shown))
+      (format t "Beginning main loop.~%") (finish-output)
+      (sdl2:with-event-loop  (:method :poll)
+        (:keydown (:keysym keysym)
+                  (let ((scancode (sdl2:scancode-value keysym))
+                        (sym (sdl2:sym-value keysym))
+                        (mod-value (sdl2:mod-value keysym)))
+                    (cond
+                      ((sdl2:scancode= scancode :scancode-w) (format t "~a~%" "WALK"))
+                      )
+                    (format t "Key sym: ~a, code: ~a, mod: ~a~%"
+                            sym scancode mod-value)))
+        (:keyup (:keysym keysym)
+                (when (sdl2:scancode= (sdl2:scancode-value keysym) :scancode-escape)
+                  (sdl2:push-event :quit)))
+        (:quit () t))
+      (format t "Exiting main loop.~%") (finish-output))))
+
+;; -------------------------------------------------------------
+
 ;; (play-sequence '((:C 0.5)
 ;;                  (:C 0.5)
 ;;                  (:G 0.5)

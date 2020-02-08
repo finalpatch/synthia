@@ -161,7 +161,7 @@
 (defun keyboard (&optional (synth 'osc-square))
   (sdl2:with-init (:everything)
     (sdl2:with-window (win :flags '(:shown))
-      (sdl2:with-renderer (ren win)
+      (sdl2:with-renderer (ren win :flags '(:accelerated :presentvsync))
         (with-al-context
             (al:with-source (source)
               (al:with-buffers (*buffer-count* buffers)

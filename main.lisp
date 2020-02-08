@@ -10,7 +10,7 @@
 
 (defconstant sample-rate 44100)
 (defconstant sample-width 2)
-(defconstant chunk-samples 256)
+(defconstant chunk-samples 512)
 
 (defun samples-duration (data)
   (/ (length data) sample-rate))
@@ -64,10 +64,10 @@
 (defun gen-rand (pos)
   (1- (random 2.0)))
 
-(defun gen-samples (gen samples)
+(defun gen-samples (gen samples &optional (pos 0))
   (let ((sample-array (make-array samples)))
     (loop for i from 0 to (1- samples)
-          do (setf (aref sample-array i) (funcall gen i)))
+          do (setf (aref sample-array i) (funcall gen (+ pos i))))
     sample-array))
 
 (defun note-to-freq (note)
@@ -95,25 +95,58 @@
 
 ;; -------------------------------------------------------------
 
+(defun fill-streaming-buffers (freq pos buffers)
+  (loop for b in buffers
+        do (let ((samples (gen-samples (gen-square freq) chunk-samples pos)))
+             (fill-buffer b samples)
+             (incf pos chunk-samples)))
+  pos)
+
 (defun keyboard ()
   (sdl2:with-init (:everything)
     (sdl2:with-window (win :flags '(:shown))
-      (format t "Beginning main loop.~%") (finish-output)
-      (sdl2:with-event-loop  (:method :poll)
-        (:keydown (:keysym keysym)
-                  (let ((scancode (sdl2:scancode-value keysym))
-                        (sym (sdl2:sym-value keysym))
-                        (mod-value (sdl2:mod-value keysym)))
-                    (cond
-                      ((sdl2:scancode= scancode :scancode-w) (format t "~a~%" "WALK"))
-                      )
-                    (format t "Key sym: ~a, code: ~a, mod: ~a~%"
-                            sym scancode mod-value)))
-        (:keyup (:keysym keysym)
-                (when (sdl2:scancode= (sdl2:scancode-value keysym) :scancode-escape)
-                  (sdl2:push-event :quit)))
-        (:quit () t))
-      (format t "Exiting main loop.~%") (finish-output))))
+
+      (with-al-context
+        (al:with-source (source)
+          (al:with-buffers (4 buffers)
+            (let ((freq 0) (pos 0))
+
+              ;; queue all buffers
+              (setf pos (fill-streaming-buffers freq pos buffers))
+              (al:source-queue-buffers source buffers)
+              (al:source-play source)
+
+              (format t "Beginning main loop.~%") (finish-output)
+              (sdl2:with-event-loop  (:method :poll)
+                (:keydown (:keysym keysym)
+                          (let ((scancode (sdl2:scancode-value keysym))
+                                (sym (sdl2:sym-value keysym))
+                                (mod-value (sdl2:mod-value keysym)))
+                            (cond
+                              ((sdl2:scancode= scancode :scancode-w) (setf freq 440))
+                              )
+                            (format t "Key sym: ~a, code: ~a, mod: ~a~%"
+                                    sym scancode mod-value)))
+                (:keyup (:keysym keysym)
+                        (setf freq 0)
+                        (when (sdl2:scancode= (sdl2:scancode-value keysym) :scancode-escape)
+                          (sdl2:push-event :quit)))
+                (:idle ()
+                       (let ((processed (al:get-source source :buffers-processed)))
+                         (when (> processed 0)
+                           (let ((free-buffers (al:source-unqueue-buffers source processed)))
+
+                             ;; queue buffers
+                             (setf pos (fill-streaming-buffers freq pos free-buffers))
+                             (al:source-queue-buffers source free-buffers)
+                             (format t "queue buffers ~a~%" processed) (finish-output)
+
+                             (when (equal (al:get-source source :source-state) :stopped)
+                               (setf pos 0)
+                               (al:source-play source))
+                             ))))
+                (:quit () t))
+              (format t "Exiting main loop.~%") (finish-output))))))))
 
 ;; -------------------------------------------------------------
 

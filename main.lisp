@@ -33,9 +33,9 @@
        ,@body)))
 
 (defun play-samples-in-al-context (data)
-  (al:with-buffer (buffer)
-    (fill-buffer buffer data)
-    (al:with-source (source)
+  (al:with-source (source)
+    (al:with-buffer (buffer)
+      (fill-buffer buffer data)
       (al:source source :buffer buffer)
       (al:source-play source)
       (sleep (samples-duration data))
@@ -53,6 +53,13 @@
   (lambda (pos)
     (let ((time (/ pos sample-rate)))
       (sin (* freq 2 pi time)))))
+
+(defun gen-square (freq)
+  (let ((sine-generator (gen-sine freq)))
+    (lambda (pos)
+      (if (> (funcall sine-generator pos) 0)
+          1.0
+          0.0))))
 
 (defun gen-rand (pos)
   (1- (random 2.0)))
@@ -82,9 +89,9 @@
 
 (defun play-sequence (seq)
   (with-al-context
-    (loop for e in seq
-          do (play-samples-in-al-context
-              (note (car e) (cadr e))))))
+      (loop for e in seq
+            do (play-samples-in-al-context
+                (note (car e) (cadr e))))))
 
 ;; (play-sequence '((:C 0.5)
 ;;                  (:C 0.5)
@@ -106,6 +113,6 @@
 ;; white noise
 ;; (play-samples (gen-samples #'gen-rand sample-rate))
 ;; 440hz
-;; (play-samples (gen-samples (gen-sine 440) sample-rate))
+;; (play-samples (gen-samples (gen-square 220) sample-rate))
 ;; note A
 ;; (play-samples (note :A2 (/ 1 2)))

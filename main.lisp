@@ -128,12 +128,14 @@
         (tex (sdl2:create-texture-from-surface
               ren (sdl2-image:load-image "keyboard.png"))))
     ;; start playing
-    (setf pos (stream-buffers synth freq pos source buffers))
+    (stream-buffers #'osc-zero freq pos source buffers)
     (format t "Beginning main loop.~%") (finish-output)
     (sdl2:with-event-loop  (:method :poll)
-      (:keydown (:keysym keysym)
-                (let ((scancode (sdl2:scancode-value keysym)))
-                  (setf freq (note-to-freq (scancode-to-note scancode)))))
+      (:keydown (:keysym keysym :repeat repeat)
+                (when (= repeat 0)
+                  (let ((scancode (sdl2:scancode-value keysym)))
+                    (setf freq (note-to-freq (scancode-to-note scancode)))
+                    (setf pos 0))))
       (:keyup (:keysym keysym)
               (let ((scancode (sdl2:scancode-value keysym)))
                 ;; if equal to last pressed key, set to silence
@@ -146,7 +148,9 @@
                (when (> processed 0)
                  (let ((free-buffers (al:source-unqueue-buffers source processed)))
                    ;; keep playing
-                   (setf pos (stream-buffers synth freq pos source free-buffers))
+                   (setf pos (stream-buffers
+                              (if (> freq 0) synth #'osc-zero)
+                              freq pos source free-buffers))
                    (format t "queue buffers ~a~%" processed) (finish-output))))
              (sdl2:render-clear ren)
              (sdl2:render-copy ren tex)

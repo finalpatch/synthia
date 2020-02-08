@@ -2,29 +2,15 @@
   (:use :cl)
   (:export
    :gen-sine :gen-rand :gen-samples :note-to-freq
-   :play-samples :play-sequence))
+   :play-samples :play-sequence :keyboard))
 
 (in-package :synthia)
 
+(defparameter *sample-rate* 44100)
+(defparameter *buffer-samples* 512)
+(defparameter *buffer-count* 4)
+
 ;; OpenAL helpers -------------------------------------------
-
-(defconstant sample-rate 44100)
-(defconstant sample-width 2)
-(defconstant chunk-samples 512)
-
-(defun samples-duration (data)
-  (/ (length data) sample-rate))
-
-(defun fill-buffer (buffer data)
-  "Fill an OpenAL buffer with a lisp array of numbers between 0.0 and 1.0"
-  (let ((size (length data))
-        (scale (1- (ash 1 (1- (* 8 sample-width))))))
-    (cffi:with-foreign-object (device-array :short size)
-      (loop for i below size
-            do (setf (cffi:mem-aref device-array :short i)
-                     (round (* (elt data i) scale))))
-      (al:buffer-data buffer :mono16 device-array
-                      (* size sample-width) sample-rate))))
 
 (defmacro with-al-context (&body body)
   `(alc:with-device (device)
@@ -32,14 +18,29 @@
        (alc:make-context-current context)
        ,@body)))
 
+(defun fill-al-buffer (buffer data)
+  "Fill an OpenAL buffer with a lisp array of numbers between 0.0 and 1.0"
+  (let* ((sample-width 2)
+         (size (length data))
+         (scale (1- (ash 1 (1- (* 8 sample-width))))))
+    (cffi:with-foreign-object (device-array :short size)
+      (loop for i below size
+            do (setf (cffi:mem-aref device-array :short i)
+                     (round (* (elt data i) scale))))
+      (al:buffer-data buffer :mono16 device-array
+                      (* size sample-width) *sample-rate*))))
+
+(defun samples-duration (data)
+  (/ (length data) *sample-rate*))
+
 (defun play-samples-in-al-context (data)
   (al:with-source (source)
     (al:with-buffer (buffer)
-      (fill-buffer buffer data)
+      (fill-al-buffer buffer data)
       (al:source source :buffer buffer)
       (al:source-play source)
-      (sleep (samples-duration data))
-      (al:source-stop source))))
+      (loop until (equal (al:get-source source :source-state) :stopped)
+            do (sleep 0.01)))))
 
 ;; -------------------------------------------------------------
 
@@ -49,25 +50,25 @@
 
 (defconstant twelveth-root-of-2 (expt 2 (/ 1 12)))
 
-(defun gen-sine (freq)
-  (lambda (pos)
-    (let ((time (/ pos sample-rate)))
-      (sin (* freq 2 pi time)))))
-
-(defun gen-square (freq)
-  (let ((sine-generator (gen-sine freq)))
-    (lambda (pos)
-      (if (> (funcall sine-generator pos) 0)
-          1.0
-          0.0))))
-
-(defun gen-rand (pos)
+(defun osc-random (pos)
+  (declare (ignore pos))
   (1- (random 2.0)))
 
-(defun gen-samples (gen samples &optional (pos 0))
+(defun osc-sine (freq)
+  (lambda (pos)
+    (let ((time (/ pos *sample-rate*)))
+      (sin (* freq 2 pi time)))))
+
+(defun osc-square (freq)
+  (let ((sine-generator (osc-sine freq)))
+    (lambda (pos)
+      (if (> (funcall sine-generator pos) 0)
+          1.0 -1.0))))
+
+(defun gen-samples (osc samples &optional (pos 0))
   (let ((sample-array (make-array samples)))
     (loop for i from 0 to (1- samples)
-          do (setf (aref sample-array i) (funcall gen (+ pos i))))
+          do (setf (aref sample-array i) (funcall osc (+ pos i))))
     sample-array))
 
 (defun note-to-freq (note)
@@ -77,9 +78,9 @@
                   (position :A *music-scale*))))
         (* 440 (expt twelveth-root-of-2 k)))))
 
-(defun note (name duration)
-  (gen-samples (gen-sine (note-to-freq name))
-               (floor (+ 0.5 (* duration sample-rate)))))
+(defun gen-note (name duration &optional (osc 'osc-sine))
+  (gen-samples (funcall osc (note-to-freq name))
+               (floor (+ 0.5 (* duration *sample-rate*)))))
 
 ;; -------------------------------------------------------------
 
@@ -91,31 +92,32 @@
   (with-al-context
       (loop for e in seq
             do (play-samples-in-al-context
-                (note (car e) (cadr e))))))
+                (gen-note (car e) (cadr e))))))
 
 ;; -------------------------------------------------------------
 
-(defun fill-streaming-buffers (freq pos buffers)
+(defun stream-buffers (freq pos source buffers)
+  ;; fill buffers with new samples
   (loop for b in buffers
-        do (let ((samples (gen-samples (gen-square freq) chunk-samples pos)))
-             (fill-buffer b samples)
-             (incf pos chunk-samples)))
+        do (let ((samples (gen-samples (osc-square freq) *buffer-samples* pos)))
+             (fill-al-buffer b samples)
+             (incf pos *buffer-samples*)))
+  ;; queue buffers on the source
+  (al:source-queue-buffers source buffers)
+  ;; start play if not already
+  (unless (equal (al:get-source source :source-state) :playing)
+    (al:source-play source))
   pos)
 
 (defun keyboard ()
   (sdl2:with-init (:everything)
     (sdl2:with-window (win :flags '(:shown))
-
       (with-al-context
         (al:with-source (source)
-          (al:with-buffers (4 buffers)
+          (al:with-buffers (*buffer-count* buffers)
             (let ((freq 0) (pos 0))
-
-              ;; queue all buffers
-              (setf pos (fill-streaming-buffers freq pos buffers))
-              (al:source-queue-buffers source buffers)
-              (al:source-play source)
-
+              ;; start playing
+              (setf pos (stream-buffers freq pos source buffers))
               (format t "Beginning main loop.~%") (finish-output)
               (sdl2:with-event-loop  (:method :poll)
                 (:keydown (:keysym keysym)
@@ -135,16 +137,9 @@
                        (let ((processed (al:get-source source :buffers-processed)))
                          (when (> processed 0)
                            (let ((free-buffers (al:source-unqueue-buffers source processed)))
-
-                             ;; queue buffers
-                             (setf pos (fill-streaming-buffers freq pos free-buffers))
-                             (al:source-queue-buffers source free-buffers)
-                             (format t "queue buffers ~a~%" processed) (finish-output)
-
-                             (when (equal (al:get-source source :source-state) :stopped)
-                               (setf pos 0)
-                               (al:source-play source))
-                             ))))
+                             ;; keep playing
+                             (setf pos (stream-buffers freq pos source free-buffers))
+                             (format t "queue buffers ~a~%" processed) (finish-output)))))
                 (:quit () t))
               (format t "Exiting main loop.~%") (finish-output))))))))
 
@@ -168,8 +163,8 @@
 ;;                  ))
 
 ;; white noise
-;; (play-samples (gen-samples #'gen-rand sample-rate))
+;; (play-samples (gen-samples #'osc-random *sample-rate*))
 ;; 440hz
-;; (play-samples (gen-samples (gen-square 220) sample-rate))
+;; (play-samples (gen-samples (osc-square 220) *sample-rate*))
 ;; note A
-;; (play-samples (note :A2 (/ 1 2)))
+;; (play-samples (gen-note :A (/ 1 2) 'osc-sine))

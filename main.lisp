@@ -8,8 +8,8 @@
 (defparameter *buffer-samples* 512)
 (defparameter *buffer-count* 4)
 
-;; OpenAL helpers -------------------------------------------
-
+;; OpenAL helpers
+;; -------------------------------------------------------------
 (defmacro with-al-context (&body body)
   `(alc:with-device (device)
      (alc:with-context (context device)
@@ -28,34 +28,35 @@
       (al:buffer-data buffer :mono16 device-array
                       (* size sample-width) *sample-rate*))))
 
+;; Oscillators
 ;; -------------------------------------------------------------
-
-(defun osc-zero (freq pos)
-  (declare (ignore freq pos))
+(defun osc-zero (freq time)
+  (declare (ignore freq time))
   0)
 
-(defun osc-random (freq pos)
-  (declare (ignore freq pos))
+(defun osc-random (freq time)
+  (declare (ignore freq time))
   (1- (random 2.0)))
 
-(defun osc-sine (freq pos)
-  (let ((time (/ pos *sample-rate*)))
-    (sin (* freq 2 pi time))))
+;; (/ pos *sample-rate*))
+(defun osc-sine (freq time)
+    (sin (* freq 2 pi time)))
 
-(defun osc-square (freq pos)
-  (if (> (osc-sine freq pos) 0)
+(defun osc-square (freq time)
+  (if (> (osc-sine freq time) 0)
       1.0 -1.0))
 
 (defun osc-saw (freq pos)
-  (let ((period (/ *sample-rate* freq)))
-    (1- (* 2 (/ (mod pos period) period)))))
+  (let ((period (/ 1 freq)))
+    (1- (* 2 freq (mod pos period)))))
 
+;; Musical notes
 ;; -------------------------------------------------------------
-
 (defun gen-samples (synth freq samples &optional (pos 0))
   (let ((sample-array (make-array samples)))
     (dotimes (i samples)
-      (setf (aref sample-array i) (funcall synth freq (+ pos i))))
+      (setf (aref sample-array i)
+            (funcall synth freq (/ (+ pos i) *sample-rate*))))
     sample-array))
 
 (defparameter *music-scale*
@@ -72,8 +73,8 @@
                   (position :A *music-scale*))))
         (* 440 (expt twelveth-root-of-2 k)))))
 
+;; Keyboard
 ;; -------------------------------------------------------------
-
 (defun stream-buffers (synth freq pos source buffers)
   ;; fill buffers with new samples
   (loop for b in buffers do

@@ -46,8 +46,10 @@
       1.0 -1.0))
 
 (defun osc-saw (freq pos)
-  (let ((period (/ 1 freq)))
-    (1- (* 2 freq (mod pos period)))))
+  (if (equal 0 freq)
+      0
+      (let ((period (/ 1 freq)))
+        (1- (* 2 freq (mod pos period))))))
 
 ;; Envelopes (ADSR)
 ;; -------------------------------------------------------------
@@ -103,6 +105,13 @@
   (let ((time-since-start (- time (start-time ins))))
     (* (envelop ins time-since-start)
        (funcall (osc ins) (freq ins) time-since-start))))
+;; (defmethod compute-sample ((ins instrument) time)
+;;   (let ((time-since-start (- time (start-time ins))))
+;;     (* (envelop ins time-since-start)
+;;        (+ 
+;;         (* 0.8 (funcall (osc ins) (freq ins) time-since-start)
+;;         (* 0.4 (osc-saw (/ (freq ins) 2) time-since-start))
+;;         )))))
 
 (defmethod gen-samples ((ins instrument) samples pos)
   (let ((sample-array (make-array samples)))

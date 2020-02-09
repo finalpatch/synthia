@@ -105,20 +105,6 @@
   (let ((time-since-start (- time (start-time ins))))
     (* (envelop ins time-since-start)
        (funcall (osc ins) (freq ins) time-since-start))))
-;; (defmethod compute-sample ((ins instrument) time)
-;;   (let ((time-since-start (- time (start-time ins))))
-;;     (* (envelop ins time-since-start)
-;;        (+ 
-;;         (* 0.8 (funcall (osc ins) (freq ins) time-since-start)
-;;         (* 0.4 (osc-saw (/ (freq ins) 2) time-since-start))
-;;         )))))
-
-(defmethod gen-samples ((ins instrument) samples pos)
-  (let ((sample-array (make-array samples)))
-    (dotimes (i samples)
-      (setf (aref sample-array i)
-            (compute-sample ins (pos-to-time (+ pos i)))))
-    sample-array))
 
 ;; Musical notes
 ;; -------------------------------------------------------------
@@ -139,7 +125,14 @@
 ;; Keyboard
 ;; -------------------------------------------------------------
 (defun pos-to-time (pos) (/ pos *sample-rate*))
-    
+
+(defun gen-samples (ins samples pos)
+  (let ((sample-array (make-array samples)))
+    (dotimes (i samples)
+      (setf (aref sample-array i)
+            (compute-sample ins (pos-to-time (+ pos i)))))
+    sample-array))
+
 (defun stream-buffers (instrument pos source buffers)
   ;; fill buffers with new samples
   (loop for b in buffers do

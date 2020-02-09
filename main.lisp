@@ -22,9 +22,9 @@
          (size (length data))
          (scale (1- (ash 1 (1- (* 8 sample-width))))))
     (cffi:with-foreign-object (device-array :short size)
-      (loop for i below size
-            do (setf (cffi:mem-aref device-array :short i)
-                     (round (* (elt data i) scale))))
+      (dotimes (i size)
+        (setf (cffi:mem-aref device-array :short i)
+              (round (* (elt data i) scale))))
       (al:buffer-data buffer :mono16 device-array
                       (* size sample-width) *sample-rate*))))
 
@@ -50,8 +50,8 @@
 
 (defun gen-samples (synth freq samples &optional (pos 0))
   (let ((sample-array (make-array samples)))
-    (loop for i from 0 to (1- samples)
-          do (setf (aref sample-array i) (funcall synth freq (+ pos i))))
+    (dotimes (i samples)
+      (setf (aref sample-array i) (funcall synth freq (+ pos i))))
     sample-array))
 
 (defparameter *music-scale*
@@ -72,10 +72,10 @@
 
 (defun stream-buffers (synth freq pos source buffers)
   ;; fill buffers with new samples
-  (loop for b in buffers
-        do (let ((samples (gen-samples synth freq *buffer-samples* pos)))
-             (fill-al-buffer b samples)
-             (incf pos *buffer-samples*)))
+  (loop for b in buffers do
+    (let ((samples (gen-samples synth freq *buffer-samples* pos)))
+      (fill-al-buffer b samples)
+      (incf pos *buffer-samples*)))
   ;; queue buffers on the source
   (al:source-queue-buffers source buffers)
   ;; start play if not already

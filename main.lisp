@@ -99,18 +99,17 @@
            (- sustain-amplitude (* time-since-stop slope))))
      0)))
 
+(defmethod compute-sample ((ins instrument) time)
+  (let ((time-since-start (- time (start-time ins))))
+    (* (envelop ins time-since-start)
+       (funcall (osc ins) (freq ins) time-since-start))))
+
 (defmethod gen-samples ((ins instrument) samples pos)
-  (if (> (freq ins) 0)
-      (let ((sample-array (make-array samples)))
-        (dotimes (i samples)
-          (let ((time-since-start
-                  (- (pos-to-time (+ pos i))
-                     (start-time ins))))
-                (setf (aref sample-array i)
-                      (* (envelop ins time-since-start)
-                         (funcall (osc ins) (freq ins) time-since-start)))))
-        sample-array)
-      (make-array samples :initial-element 0)))
+  (let ((sample-array (make-array samples)))
+    (dotimes (i samples)
+      (setf (aref sample-array i)
+            (compute-sample ins (pos-to-time (+ pos i)))))
+    sample-array))
 
 ;; Musical notes
 ;; -------------------------------------------------------------

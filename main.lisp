@@ -6,7 +6,7 @@
 
 (defparameter *sample-rate* 44100)
 (defparameter *buffer-samples* 512)
-(defparameter *buffer-count* 4)
+(defparameter *buffer-count* 6)
 
 ;; OpenAL helpers
 ;; -------------------------------------------------------------
@@ -38,7 +38,6 @@
   (declare (ignore freq time))
   (1- (random 2.0)))
 
-;; (/ pos *sample-rate*))
 (defun osc-sine (freq time)
     (sin (* freq 2 pi time)))
 
@@ -50,15 +49,71 @@
   (let ((period (/ 1 freq)))
     (1- (* 2 freq (mod pos period)))))
 
+;; Envelopes (ADSR)
+;; -------------------------------------------------------------
+(defclass instrument ()
+  ((oscillator :initform 'osc-sine :reader osc)
+   (frequency :initform 0 :accessor freq)
+   (start-time :initform 0 :accessor start-time)
+   (stop-time :initform 0 :accessor stop-time)
+
+   (attack-time :initform 0.05)
+   (decay-time :initform 0.02)
+   (sustain-amplitude :initform 0.7)
+   (release-time :initform 0.2)
+
+   (note-on :initform nil)))
+
+(defmethod start ((ins instrument) freq time)
+  (with-slots (frequency note-on start-time stop-time) ins
+    (setf note-on t)
+    (setf frequency freq)
+    (setf start-time time)))
+
+(defmethod stop ((ins instrument) freq time)
+  (with-slots (frequency note-on stop-time) ins
+    (when (equal freq frequency)
+      (setf note-on nil)
+      (setf stop-time time))))
+
+(defmethod envelop ((ins instrument) time-since-start)
+  (with-slots (note-on start-time stop-time
+               attack-time decay-time sustain-amplitude release-time)
+      ins
+    (max 
+     (if note-on
+         (cond
+           ;; attack
+           ((< time-since-start attack-time)
+            (/ time-since-start attack-time))
+           ;; decay
+           ((< time-since-start (+ attack-time decay-time));)
+            (- 1 (* (- 1 sustain-amplitude)
+                    (/ (- time-since-start attack-time) decay-time))))
+           ;; sustain
+           (t sustain-amplitude))
+         ;; release
+         (let ((time-since-stop
+                 (- (+ time-since-start start-time) stop-time))
+               (slope (/ sustain-amplitude release-time)))
+           (- sustain-amplitude (* time-since-stop slope))))
+     0)))
+
+(defmethod gen-samples ((ins instrument) samples pos)
+  (if (> (freq ins) 0)
+      (let ((sample-array (make-array samples)))
+        (dotimes (i samples)
+          (let ((time-since-start
+                  (- (pos-to-time (+ pos i))
+                     (start-time ins))))
+                (setf (aref sample-array i)
+                      (* (envelop ins time-since-start)
+                         (funcall (osc ins) (freq ins) time-since-start)))))
+        sample-array)
+      (make-array samples :initial-element 0)))
+
 ;; Musical notes
 ;; -------------------------------------------------------------
-(defun gen-samples (synth freq samples &optional (pos 0))
-  (let ((sample-array (make-array samples)))
-    (dotimes (i samples)
-      (setf (aref sample-array i)
-            (funcall synth freq (/ (+ pos i) *sample-rate*))))
-    sample-array))
-
 (defparameter *music-scale*
   #(:C  :C#  :D  :D#  :E  :F  :F#  :G  :G#  :A  :A#  :B
     :C2 :C2# :D2 :D2# :E2 :F2 :F2# :G2 :G2# :A2 :A2# :B2
@@ -75,17 +130,20 @@
 
 ;; Keyboard
 ;; -------------------------------------------------------------
-(defun stream-buffers (synth freq pos source buffers)
+(defun pos-to-time (pos) (/ pos *sample-rate*))
+    
+(defun stream-buffers (instrument pos source buffers)
   ;; fill buffers with new samples
   (loop for b in buffers do
-    (let ((samples (gen-samples synth freq *buffer-samples* pos)))
+    (let ((samples (gen-samples instrument *buffer-samples* pos)))
       (fill-al-buffer b samples)
       (incf pos *buffer-samples*)))
   ;; queue buffers on the source
   (al:source-queue-buffers source buffers)
   ;; start play if not already
-  (unless (equal (al:get-source source :source-state) :playing)
-    (al:source-play source))
+  (let ((state (al:get-source source :source-state)))
+    (when (equal state :stopped) (format t "stutter~%") (finish-output))
+    (unless (equal state :playing) (al:source-play source)))
   pos)
 
 (defun scancode-to-note (scancode)
@@ -127,25 +185,26 @@
 
     (t :R)))
 
-(defun keyboard-loop (synth source buffers ren)
-  (let ((freq 0)
+(defun keyboard-loop (source buffers ren)
+  (let ((instrument (make-instance 'instrument))
         (pos 0)
         (tex (sdl2:create-texture-from-surface
               ren (sdl2-image:load-image "keyboard.png"))))
     ;; start playing
-    (stream-buffers #'osc-zero freq pos source buffers)
+    (setf pos (stream-buffers instrument pos source buffers))
     (format t "Beginning main loop.~%") (finish-output)
     (sdl2:with-event-loop  (:method :poll)
       (:keydown (:keysym keysym :repeat repeat)
                 (when (= repeat 0)
                   (let ((scancode (sdl2:scancode-value keysym)))
-                    (setf freq (note-to-freq (scancode-to-note scancode)))
-                    (setf pos 0))))
+                    (start instrument
+                           (note-to-freq (scancode-to-note scancode))
+                           (pos-to-time pos)))))
       (:keyup (:keysym keysym)
               (let ((scancode (sdl2:scancode-value keysym)))
-                ;; if equal to last pressed key, set to silence
-                (when (= freq (note-to-freq (scancode-to-note scancode)))
-                  (setf freq 0)))
+                (stop instrument
+                      (note-to-freq (scancode-to-note scancode))
+                      (pos-to-time pos)))
               (when (sdl2:scancode= (sdl2:scancode-value keysym) :scancode-escape)
                 (sdl2:push-event :quit)))
       (:idle ()
@@ -153,20 +212,18 @@
                (when (> processed 0)
                  (let ((free-buffers (al:source-unqueue-buffers source processed)))
                    ;; keep playing
-                   (setf pos (stream-buffers
-                              (if (> freq 0) synth #'osc-zero)
-                              freq pos source free-buffers)))))
+                   (setf pos (stream-buffers instrument pos source free-buffers)))))
              (sdl2:render-clear ren)
              (sdl2:render-copy ren tex)
              (sdl2:render-present ren))
       (:quit () t))
     (format t "Exiting main loop.~%") (finish-output)))
 
-(defun keyboard (&optional (synth 'osc-square))
+(defun keyboard ()
   (sdl2:with-init (:everything)
     (sdl2:with-window (win :flags '(:shown))
       (sdl2:with-renderer (ren win :flags '(:accelerated :presentvsync))
         (with-al-context
             (al:with-source (source)
               (al:with-buffers (*buffer-count* buffers)
-                (keyboard-loop synth source buffers ren))))))))
+                (keyboard-loop source buffers ren))))))))

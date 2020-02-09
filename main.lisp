@@ -46,6 +46,10 @@
   (if (> (osc-sine freq pos) 0)
       1.0 -1.0))
 
+(defun osc-saw (freq pos)
+  (let ((period (/ *sample-rate* freq)))
+    (1- (* 2 (/ (mod pos period) period)))))
+
 ;; -------------------------------------------------------------
 
 (defun gen-samples (synth freq samples &optional (pos 0))
@@ -150,8 +154,7 @@
                    ;; keep playing
                    (setf pos (stream-buffers
                               (if (> freq 0) synth #'osc-zero)
-                              freq pos source free-buffers))
-                   (format t "queue buffers ~a~%" processed) (finish-output))))
+                              freq pos source free-buffers)))))
              (sdl2:render-clear ren)
              (sdl2:render-copy ren tex)
              (sdl2:render-present ren))

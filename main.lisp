@@ -45,16 +45,29 @@
   (if (> (osc-sine freq time) 0)
       1.0 -1.0))
 
+(defun osc-triangle (freq time)
+  (* (/ 2 pi) (asin (osc-sine freq time))))
+
 (defun osc-saw (freq pos)
   (if (equal 0 freq)
       0
       (let ((period (/ 1 freq)))
         (1- (* 2 freq (mod pos period))))))
 
+;; Frequency modulation
+;; -------------------------------------------------------------
+(defun modulate (carrier-osc carrier-freq
+                 modulator-osc modulator-freq
+                 modulation-index
+                 time)
+  (let ((modulation (funcall modulator-osc modulator-freq time)))
+    (funcall carrier-osc carrier-freq
+             (+ time (* modulation-index modulation)))))
+
 ;; Envelopes (ADSR)
 ;; -------------------------------------------------------------
 (defclass instrument ()
-  ((oscillator :initform 'osc-sine :reader osc)
+  ((oscillator :initform 'osc-triangle :reader osc)
    (frequency :initform 0 :accessor freq)
    (start-time :initform 0 :accessor start-time)
    (stop-time :initform 0 :accessor stop-time)
@@ -104,7 +117,13 @@
 (defmethod compute-sample ((ins instrument) time)
   (let ((time-since-start (- time (start-time ins))))
     (* (envelop ins time-since-start)
-       (funcall (osc ins) (freq ins) time-since-start))))
+       ;(funcall (osc ins) (freq ins) time-since-start)
+       (modulate (osc ins)
+                 (freq ins)
+                 #'osc-sine
+                 10
+                 0.001
+                 time-since-start))))
 
 ;; Musical notes
 ;; -------------------------------------------------------------

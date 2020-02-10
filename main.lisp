@@ -5,7 +5,7 @@
 (in-package :synthia)
 
 (defparameter *sample-rate* 44100)
-(defparameter *buffer-samples* 512)
+(defparameter *audio-buffer* (make-array 512))
 (defparameter *buffer-count* 6)
 
 ;; OpenAL helpers
@@ -67,7 +67,7 @@
 ;; Envelopes (ADSR)
 ;; -------------------------------------------------------------
 (defclass instrument ()
-  ((oscillator :initform 'osc-triangle :reader osc)
+  ((oscillator :initform 'osc-square :reader osc)
    (frequency :initform 0 :accessor freq)
    (start-time :initform 0 :accessor start-time)
    (stop-time :initform 0 :accessor stop-time)
@@ -115,15 +115,20 @@
      0)))
 
 (defmethod compute-sample ((ins instrument) time)
-  (let ((time-since-start (- time (start-time ins))))
+  (let ((time-since-start (- time (start-time ins)))
+        (freq (freq ins)))
     (* (envelop ins time-since-start)
-       ;(funcall (osc ins) (freq ins) time-since-start)
-       (modulate (osc ins)
-                 (freq ins)
-                 #'osc-sine
-                 10
-                 0.001
-                 time-since-start))))
+       (+
+        (* 0.4 (modulate (osc ins)
+                  freq
+                  #'osc-sine
+                  5
+                  0.001
+                  time-since-start))
+        (* 0.2  (osc-square (* freq 1.5) time-since-start))
+        (* 0.1  (osc-square (* freq 2) time-since-start))
+        (* 0.05 (osc-random 0 0))
+        ))))
 
 ;; Musical notes
 ;; -------------------------------------------------------------
@@ -145,19 +150,17 @@
 ;; -------------------------------------------------------------
 (defun pos-to-time (pos) (/ pos *sample-rate*))
 
-(defun gen-samples (ins samples pos)
-  (let ((sample-array (make-array samples)))
-    (dotimes (i samples)
-      (setf (aref sample-array i)
-            (compute-sample ins (pos-to-time (+ pos i)))))
-    sample-array))
+(defun gen-samples (ins sample-array pos)
+  (dotimes (i (length sample-array))
+    (setf (aref sample-array i)
+          (compute-sample ins (pos-to-time (+ pos i))))))
 
 (defun stream-buffers (instrument pos source buffers)
   ;; fill buffers with new samples
   (loop for b in buffers do
-    (let ((samples (gen-samples instrument *buffer-samples* pos)))
-      (fill-al-buffer b samples)
-      (incf pos *buffer-samples*)))
+    (gen-samples instrument *audio-buffer* pos)
+    (fill-al-buffer b *audio-buffer*)
+    (incf pos (length *audio-buffer*)))
   ;; queue buffers on the source
   (al:source-queue-buffers source buffers)
   ;; start play if not already

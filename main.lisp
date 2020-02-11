@@ -169,44 +169,26 @@
     (unless (equal state :playing) (al:source-play source)))
   pos)
 
+(defmacro keyboard-map (kbmap)
+  (cons 'cond (append 
+         (loop for entry in kbmap
+               collect
+               `((sdl2:scancode=
+                  scancode
+                  ,(intern (concatenate 'string "SCANCODE-"
+                                        (string-upcase (car entry)))
+                           :keyword))
+                 ,(cadr entry)))
+         '((t :R)))))
+
 (defun scancode-to-note (scancode)
-  (cond
-    ((sdl2:scancode= scancode :scancode-z) :C)
-    ((sdl2:scancode= scancode :scancode-x) :D)
-    ((sdl2:scancode= scancode :scancode-c) :E)
-    ((sdl2:scancode= scancode :scancode-v) :F)
-    ((sdl2:scancode= scancode :scancode-b) :G)
-    ((sdl2:scancode= scancode :scancode-n) :A)
-    ((sdl2:scancode= scancode :scancode-m) :B)
-
-    ((sdl2:scancode= scancode :scancode-s) :C#)
-    ((sdl2:scancode= scancode :scancode-d) :D#)
-    ((sdl2:scancode= scancode :scancode-g) :F#)
-    ((sdl2:scancode= scancode :scancode-h) :G#)
-    ((sdl2:scancode= scancode :scancode-j) :A#)
-    
-    ((sdl2:scancode= scancode :scancode-q) :C2)
-    ((sdl2:scancode= scancode :scancode-w) :D2)
-    ((sdl2:scancode= scancode :scancode-e) :E2)
-    ((sdl2:scancode= scancode :scancode-r) :F2)
-    ((sdl2:scancode= scancode :scancode-t) :G2)
-    ((sdl2:scancode= scancode :scancode-y) :A2)
-    ((sdl2:scancode= scancode :scancode-u) :B2)
-
-    ((sdl2:scancode= scancode :scancode-2) :C2#)
-    ((sdl2:scancode= scancode :scancode-3) :D2#)
-    ((sdl2:scancode= scancode :scancode-5) :F2#)
-    ((sdl2:scancode= scancode :scancode-6) :G2#)
-    ((sdl2:scancode= scancode :scancode-7) :A2#)
-    
-    ((sdl2:scancode= scancode :scancode-i) :C3)
-    ((sdl2:scancode= scancode :scancode-o) :D3)
-    ((sdl2:scancode= scancode :scancode-p) :E3)
-    
-    ((sdl2:scancode= scancode :scancode-9) :C3#)
-    ((sdl2:scancode= scancode :scancode-0) :D3#)
-
-    (t :R)))
+  (keyboard-map ((:z :C)
+     (:x :D) (:c :E) (:v :F) (:b :G) (:n :A) (:m :B)
+     (:s :C#) (:d :D#) (:g :F#) (:h :G#) (:j :A#)    
+     (:q :C2) (:w :D2) (:e :E2) (:r :F2) (:t :G2) (:y :A2) (:u :B2)
+     (:2 :C2#) (:3 :D2#) (:5 :F2#) (:6 :G2#) (:7 :A2#)    
+     (:i :C3) (:o :D3) (:p :E3)    
+     (:9 :C3#) (:0 :D3#))))
 
 (defun keyboard-loop (source buffers ren)
   (let ((instrument (make-instance 'instrument))

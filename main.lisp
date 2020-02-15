@@ -5,8 +5,8 @@
 (in-package :synthia)
 
 (defparameter *sample-rate* 44100)
-(defparameter *audio-buffer* (make-array 512))
-(defparameter *buffer-count* 4)
+(defparameter *buffer-size* 512)
+(defparameter *buffer-count* 6)
 
 ;; Oscillators
 ;; -------------------------------------------------------------
@@ -97,7 +97,8 @@
 (defmethod compute-sample ((ins instrument) time)
   (let ((time-since-start (- time (start-time ins)))
         (freq (freq ins)))
-    (* (envelop ins time-since-start)
+    (* 0.5
+       (envelop ins time-since-start)
        (+
         (* 0.4 (modulate (osc ins)
                   freq
@@ -128,31 +129,25 @@
 
 ;; Audio Engine
 ;; -------------------------------------------------------------
+(defvar *audio-buffer* nil)
+
 (defun pos-to-time (pos) (/ pos *sample-rate*))
 
-(defun gen-samples (ins sample-array pos)
-  (dotimes (i (length sample-array))
-    (setf (aref sample-array i)
-          (compute-sample ins (pos-to-time (+ pos i))))))
-
-(defun fill-al-buffer (buffer data)
-  "Fill an OpenAL buffer with a lisp array of numbers between 0.0 and 1.0"
+(defun fill-al-buffer (buffer instrument pos)
   (let* ((sample-width 2)
-         (size (length data))
          (scale (1- (ash 1 (1- (* 8 sample-width))))))
-    (cffi:with-foreign-object (device-array :short size)
-      (dotimes (i size)
-        (setf (cffi:mem-aref device-array :short i)
-              (round (* (elt data i) scale))))
-      (al:buffer-data buffer :mono16 device-array
-                      (* size sample-width) *sample-rate*))))
+    (dotimes (i *buffer-size*)
+      (setf (cffi:mem-aref *audio-buffer* :short i)
+            (round (* scale
+                      (compute-sample instrument (pos-to-time (+ pos i)))))))
+    (al:buffer-data buffer :mono16 *audio-buffer*
+                    (* *buffer-size* sample-width) *sample-rate*)))
 
 (defun stream-buffers (instrument pos source buffers)
   ;; fill buffers with new samples
   (loop for b in buffers do
-    (gen-samples instrument *audio-buffer* pos)
-    (fill-al-buffer b *audio-buffer*)
-    (incf pos (length *audio-buffer*)))
+    (fill-al-buffer b instrument pos)
+    (incf pos *buffer-size*))
   ;; queue buffers on the source
   (al:source-queue-buffers source buffers)
   ;; start play if not already
@@ -169,7 +164,7 @@
    (al-source)
    (al-buffers)
    (instrument)
-   (position)
+   (position :initform 0)
    (thread)))
 
 (defmethod init ((engine audio-engine))
@@ -180,7 +175,6 @@
     (setf al-source (al:gen-source))
     (setf al-buffers (al:gen-buffers *buffer-count*))
     (setf instrument (make-instance 'instrument))
-    (setf position (stream-buffers instrument 0 al-source al-buffers))
     (setf finished nil)
     (setf thread (bt:make-thread (lambda () (audio-thread engine))))))
 
@@ -206,12 +200,15 @@
       (stop instrument freq (pos-to-time position)))))
 
 (defmethod audio-thread ((engine audio-engine))
-  (loop do
-    (bt:with-lock-held ((lock engine))
-      (if (finished engine)
-          (return)
-          (process-audio-buffers engine)))
-    (sleep 0.01)))
+  (cffi:with-foreign-object (*audio-buffer* :short *buffer-size*)
+    (with-slots (al-source al-buffers instrument position) engine
+      (setf position (stream-buffers instrument 0 al-source al-buffers)))
+    (loop do
+      (bt:with-lock-held ((lock engine))
+        (if (finished engine)
+            (return)
+            (process-audio-buffers engine)))
+      (sleep 0.01))))
 
 (defmethod process-audio-buffers ((engine audio-engine))
   (with-slots (al-device al-context al-source al-buffers instrument position) engine

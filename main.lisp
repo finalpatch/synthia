@@ -190,6 +190,66 @@
      (:i :C3) (:o :D3) (:p :E3)    
      (:9 :C3#) (:0 :D3#))))
 
+(defclass audio-engine ()
+  ((lock :initform (bt:make-lock) :accessor lock)
+   (al-device)
+   (al-context)
+   (al-source)
+   (al-buffers)
+   (instrument)
+   (position)
+   (thread)
+   (finished :initform nil :accessor finished)))
+
+(defmethod start-sound ((engine audio-engine) freq)
+  (bt:with-lock-held ((lock engine))
+    (with-slots (instrument position) engine
+      (start instrument freq (pos-to-time position)))))
+
+(defmethod stop-sound ((engine audio-engine) freq)
+  (bt:with-lock-held ((lock engine))
+    (with-slots (instrument position) engine
+      (stop instrument freq (pos-to-time position)))))
+
+(defmethod init ((engine audio-engine))
+  (with-slots (al-device al-context al-source al-buffers instrument position thread finished) engine
+    (setf al-device (alc:open-device nil))
+    (setf al-context (alc:create-context al-device))
+    (alc:make-context-current al-context)
+    (setf al-source (al:gen-source))
+    (setf al-buffers (al:gen-buffers *buffer-count*))
+    (setf instrument (make-instance 'instrument))
+    (setf position (stream-buffers instrument 0 al-source al-buffers))
+    (setf finished nil)
+    (setf thread (bt:make-thread (lambda () (audio-thread engine))))))
+
+(defmethod fini ((engine audio-engine))
+    (bt:with-lock-held ((lock engine))
+      (setf (finished engine) t))
+    (bt:join-thread (slot-value engine 'thread))
+  (with-slots (al-device al-context al-source al-buffers) engine
+    (al:delete-buffers al-buffers)
+    (al:delete-source al-source)
+    (alc:make-context-current (cffi:null-pointer))
+    (alc:destroy-context al-context)
+    (alc:close-device al-device)))
+
+(defmethod audio-thread ((engine audio-engine))
+  (loop do
+    (bt:with-lock-held ((lock engine))
+      (if (finished engine)
+          (return)
+          (process-audio engine)))
+    (sleep 0.01)))
+
+(defmethod process-audio ((engine audio-engine))
+  (with-slots (al-device al-context al-source al-buffers instrument position) engine
+    (let ((processed (al:get-source al-source :buffers-processed)))
+      (when (> processed 0)
+        (let ((free-buffers (al:source-unqueue-buffers al-source processed)))
+          ;; keep playing
+          (setf position (stream-buffers instrument position al-source free-buffers)))))))
+
 (defclass keyboard-window (sdl2.kit:window)
   ((renderer)
    (texture)
@@ -270,46 +330,3 @@
 
 (sdl2.kit:define-start-function keyboard (&key (w 800) (h 600))
   (make-instance 'keyboard-window :w w :h h))
-
-;; (defun keyboard-loop (source buffers ren)
-;;   (let ((instrument (make-instance 'instrument))
-;;         (pos 0)
-;;         (tex (sdl2:create-texture-from-surface
-;;               ren (sdl2-image:load-image "keyboard.png"))))
-;;     ;; start playing
-;;     (setf pos (stream-buffers instrument pos source buffers))
-;;     (format t "Beginning main loop.~%") (finish-output)
-;;     (sdl2:with-event-loop  (:method :poll)
-;;       (:keydown (:keysym keysym :repeat repeat)
-;;                 (when (= repeat 0)
-;;                   (let ((scancode (sdl2:scancode-value keysym)))
-;;                     (start instrument
-;;                            (note-to-freq (scancode-to-note scancode))
-;;                            (pos-to-time pos)))))
-;;       (:keyup (:keysym keysym)
-;;               (let ((scancode (sdl2:scancode-value keysym)))
-;;                 (stop instrument
-;;                       (note-to-freq (scancode-to-note scancode))
-;;                       (pos-to-time pos)))
-;;               (when (sdl2:scancode= (sdl2:scancode-value keysym) :scancode-escape)
-;;                 (sdl2:push-event :quit)))
-;;       (:idle ()
-;;              (let ((processed (al:get-source source :buffers-processed)))
-;;                (when (> processed 0)
-;;                  (let ((free-buffers (al:source-unqueue-buffers source processed)))
-;;                    ;; keep playing
-;;                    (setf pos (stream-buffers instrument pos source free-buffers)))))
-;;              (sdl2:render-clear ren)
-;;              (sdl2:render-copy ren tex)
-;;              (sdl2:render-present ren))
-;;       (:quit () t))
-;;     (format t "Exiting main loop.~%") (finish-output)))
-
-;; (defun keyboard ()
-;;   (sdl2:with-init (:everything)
-;;     (sdl2:with-window (win :flags '(:shown))
-;;       (sdl2:with-renderer (ren win :flags '(:accelerated :presentvsync))
-;;         (with-al-context
-;;             (al:with-source (source)
-;;               (al:with-buffers (*buffer-count* buffers)
-;;                 (keyboard-loop source buffers ren))))))))

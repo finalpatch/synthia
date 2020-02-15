@@ -131,31 +131,6 @@
 ;; -------------------------------------------------------------
 (defvar *audio-buffer* nil)
 
-(defun pos-to-time (pos) (/ pos *sample-rate*))
-
-(defun fill-al-buffer (buffer instrument pos)
-  (let* ((sample-width 2)
-         (scale (1- (ash 1 (1- (* 8 sample-width))))))
-    (dotimes (i *buffer-size*)
-      (setf (cffi:mem-aref *audio-buffer* :short i)
-            (round (* scale
-                      (compute-sample instrument (pos-to-time (+ pos i)))))))
-    (al:buffer-data buffer :mono16 *audio-buffer*
-                    (* *buffer-size* sample-width) *sample-rate*)))
-
-(defun stream-buffers (instrument pos source buffers)
-  ;; fill buffers with new samples
-  (loop for b in buffers do
-    (fill-al-buffer b instrument pos)
-    (incf pos *buffer-size*))
-  ;; queue buffers on the source
-  (al:source-queue-buffers source buffers)
-  ;; start play if not already
-  (let ((state (al:get-source source :source-state)))
-    (when (equal state :stopped) (format t "stutter~%") (finish-output))
-    (unless (equal state :playing) (al:source-play source)))
-  pos)
-
 (defclass audio-engine ()
   ((lock :initform (bt:make-lock) :accessor lock)
    (finished :initform nil :accessor finished)
@@ -167,8 +142,11 @@
    (position :initform 0)
    (thread)))
 
+(defmethod wall-time ((engine audio-engine))
+  (/ (slot-value engine 'position) *sample-rate*))
+
 (defmethod init ((engine audio-engine))
-  (with-slots (al-device al-context al-source al-buffers instrument position thread finished) engine
+  (with-slots (al-device al-context al-source al-buffers instrument thread position finished) engine
     (setf al-device (alc:open-device nil))
     (setf al-context (alc:create-context al-device))
     (alc:make-context-current al-context)
@@ -176,6 +154,7 @@
     (setf al-buffers (al:gen-buffers *buffer-count*))
     (setf instrument (make-instance 'instrument))
     (setf finished nil)
+    (setf position 0)
     (setf thread (bt:make-thread (lambda () (audio-thread engine))))))
 
 (defmethod fini ((engine audio-engine))
@@ -191,19 +170,42 @@
 
 (defmethod start-sound ((engine audio-engine) freq)
   (bt:with-lock-held ((lock engine))
-    (with-slots (instrument position) engine
-      (start instrument freq (pos-to-time position)))))
+    (with-slots (instrument) engine
+      (start instrument freq (wall-time engine)))))
 
 (defmethod stop-sound ((engine audio-engine) freq)
   (bt:with-lock-held ((lock engine))
-    (with-slots (instrument position) engine
-      (stop instrument freq (pos-to-time position)))))
+    (with-slots (instrument) engine
+      (stop instrument freq (wall-time engine)))))
+
+(defmethod fill-al-buffer ((engine audio-engine) buffer)
+  (with-slots (instrument position) engine
+    (let* ((sample-width 2)
+           (scale (1- (ash 1 (1- (* 8 sample-width))))))
+      (dotimes (i *buffer-size*)
+        (setf (cffi:mem-aref *audio-buffer* :short i)
+              (round (* scale (compute-sample instrument (wall-time engine)))))
+        (incf position))
+      (al:buffer-data buffer :mono16 *audio-buffer*
+                      (* *buffer-size* sample-width) *sample-rate*))))
+
+(defmethod stream-buffers ((engine audio-engine) buffers)
+  (with-slots (al-source) engine
+    ;; fill buffers with new samples
+    (loop for b in buffers do
+      (fill-al-buffer engine b))
+    ;; queue buffers on the source
+    (al:source-queue-buffers al-source buffers)
+    ;; start play if not already
+    (let ((state (al:get-source al-source :source-state)))
+      (when (equal state :stopped) (format t "stutter~%"))
+      (unless (equal state :playing) (al:source-play al-source)))))
 
 (defmethod audio-thread ((engine audio-engine))
   (cffi:with-foreign-object (*audio-buffer* :short *buffer-size*)
-    (with-slots (al-source al-buffers instrument position) engine
-      (setf position (stream-buffers instrument 0 al-source al-buffers)))
-    (loop do
+    (with-slots (al-source al-buffers instrument) engine
+      (stream-buffers engine al-buffers))
+    (loop
       (bt:with-lock-held ((lock engine))
         (if (finished engine)
             (return)
@@ -216,14 +218,12 @@
       (when (> processed 0)
         (let ((free-buffers (al:source-unqueue-buffers al-source processed)))
           ;; keep playing
-          (setf position (stream-buffers instrument position al-source free-buffers)))))))
+          (stream-buffers engine free-buffers))))))
 
 ;; Keyboard
 ;; -------------------------------------------------------------
 (defclass keyboard-window (sdl2.kit:window)
-  ((renderer)
-   (texture)
-   (engine)))
+  ((renderer) (texture) (engine)))
 
 (defmethod sdl2.kit:initialize-window progn ((window keyboard-window) &key &allow-other-keys)
   (with-slots (sdl2.kit::sdl-window renderer texture engine) window

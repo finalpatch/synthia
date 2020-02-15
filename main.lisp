@@ -6,7 +6,7 @@
 
 (defparameter *sample-rate* 44100)
 (defparameter *audio-buffer* (make-array 512))
-(defparameter *buffer-count* 6)
+(defparameter *buffer-count* 4)
 
 ;; OpenAL helpers
 ;; -------------------------------------------------------------
@@ -190,45 +190,126 @@
      (:i :C3) (:o :D3) (:p :E3)    
      (:9 :C3#) (:0 :D3#))))
 
-(defun keyboard-loop (source buffers ren)
-  (let ((instrument (make-instance 'instrument))
-        (pos 0)
-        (tex (sdl2:create-texture-from-surface
-              ren (sdl2-image:load-image "keyboard.png"))))
-    ;; start playing
-    (setf pos (stream-buffers instrument pos source buffers))
-    (format t "Beginning main loop.~%") (finish-output)
-    (sdl2:with-event-loop  (:method :poll)
-      (:keydown (:keysym keysym :repeat repeat)
-                (when (= repeat 0)
-                  (let ((scancode (sdl2:scancode-value keysym)))
-                    (start instrument
-                           (note-to-freq (scancode-to-note scancode))
-                           (pos-to-time pos)))))
-      (:keyup (:keysym keysym)
-              (let ((scancode (sdl2:scancode-value keysym)))
-                (stop instrument
-                      (note-to-freq (scancode-to-note scancode))
-                      (pos-to-time pos)))
-              (when (sdl2:scancode= (sdl2:scancode-value keysym) :scancode-escape)
-                (sdl2:push-event :quit)))
-      (:idle ()
-             (let ((processed (al:get-source source :buffers-processed)))
-               (when (> processed 0)
-                 (let ((free-buffers (al:source-unqueue-buffers source processed)))
-                   ;; keep playing
-                   (setf pos (stream-buffers instrument pos source free-buffers)))))
-             (sdl2:render-clear ren)
-             (sdl2:render-copy ren tex)
-             (sdl2:render-present ren))
-      (:quit () t))
-    (format t "Exiting main loop.~%") (finish-output)))
+(defclass keyboard-window (sdl2.kit:window)
+  ((renderer)
+   (texture)
+   (al-device)
+   (al-context)
+   (al-source)
+   (al-buffers)
+   (ins)
+   (position :initform 0)
+   (timer)))
 
-(defun keyboard ()
-  (sdl2:with-init (:everything)
-    (sdl2:with-window (win :flags '(:shown))
-      (sdl2:with-renderer (ren win :flags '(:accelerated :presentvsync))
-        (with-al-context
-            (al:with-source (source)
-              (al:with-buffers (*buffer-count* buffers)
-                (keyboard-loop source buffers ren))))))))
+(cffi:defcallback timercb :uint32 ((interval :uint32) (param :pointer))
+  (let* ((window-id (cffi:pointer-address param))
+         (window (sdl2.kit:window-from-id window-id)))
+    (with-slots (al-source ins position) window
+      (let ((processed (al:get-source al-source :buffers-processed)))
+        (when (> processed 0)
+          (let ((free-buffers (al:source-unqueue-buffers al-source processed)))
+            ;; (format t "~a free buffers~%" free-buffers)
+            ;; keep playing
+            (setf position (stream-buffers ins position al-source free-buffers))
+            )))))
+  10)
+
+(defmethod sdl2.kit:initialize-window progn ((window keyboard-window) &key &allow-other-keys)
+  (with-slots (sdl2.kit::sdl-window renderer texture
+               al-device al-context al-source al-buffers
+               ins position timer) window
+    (setf renderer (sdl2:create-renderer sdl2.kit::sdl-window nil '(:accelerated :presentvsync)))
+    (setf texture (sdl2:create-texture-from-surface renderer (sdl2-image:load-image "keyboard.png")))
+    (setf al-device (alc:open-device nil))
+    (setf al-context (alc:create-context al-device))
+    (alc:make-context-current al-context)
+    (setf al-source (al:gen-source))
+    (setf al-buffers (al:gen-buffers *buffer-count*))
+    (setf ins (make-instance 'instrument))
+    (setf position (stream-buffers ins 0 al-source al-buffers))
+    (setf timer (sdl2:add-timer 10 (cffi:callback timercb)
+                                (cffi:make-pointer (sdl2.kit:sdl-window-id window)))))
+  (format t "Keyboard window initialized~%"))
+
+(defmethod sdl2.kit:close-window ((window keyboard-window))
+  (with-slots (renderer texture al-device al-context al-source al-buffers timer) window
+    (sdl2:remove-timer timer)
+    (sdl2:destroy-texture texture)
+    (sdl2:destroy-renderer renderer)
+    (al:delete-buffers al-buffers)
+    (al:delete-source al-source)
+    (alc:make-context-current (cffi:null-pointer))
+    (alc:destroy-context al-context)
+    (alc:close-device al-device))
+  (format t "Keyboard window closed~%")
+  (call-next-method))
+
+(defmethod sdl2.kit:render :after ((window keyboard-window))
+  (with-slots (renderer texture) window
+    (sdl2:render-clear renderer)
+    (sdl2:render-copy renderer texture)
+    (sdl2:render-present renderer)))
+
+(defmethod sdl2.kit:keyboard-event ((window keyboard-window) state ts repeat-p keysym)
+  (let ((scancode (sdl2:scancode-value keysym)))
+    (with-slots (ins position) window
+
+      (cond
+        ((sdl2:scancode= scancode :scancode-escape)
+         (sdl2.kit:close-window window))
+        
+        ((and (eq state :keydown) (not repeat-p))
+         (start ins
+                (note-to-freq (scancode-to-note scancode))
+                (pos-to-time position)))
+        ((eq state :keyup)
+         (stop ins
+               (note-to-freq (scancode-to-note scancode))
+               (pos-to-time position)))
+      ))))
+
+(sdl2.kit:define-start-function keyboard (&key (w 800) (h 600))
+  (make-instance 'keyboard-window :w w :h h))
+
+;; (defun keyboard-loop (source buffers ren)
+;;   (let ((instrument (make-instance 'instrument))
+;;         (pos 0)
+;;         (tex (sdl2:create-texture-from-surface
+;;               ren (sdl2-image:load-image "keyboard.png"))))
+;;     ;; start playing
+;;     (setf pos (stream-buffers instrument pos source buffers))
+;;     (format t "Beginning main loop.~%") (finish-output)
+;;     (sdl2:with-event-loop  (:method :poll)
+;;       (:keydown (:keysym keysym :repeat repeat)
+;;                 (when (= repeat 0)
+;;                   (let ((scancode (sdl2:scancode-value keysym)))
+;;                     (start instrument
+;;                            (note-to-freq (scancode-to-note scancode))
+;;                            (pos-to-time pos)))))
+;;       (:keyup (:keysym keysym)
+;;               (let ((scancode (sdl2:scancode-value keysym)))
+;;                 (stop instrument
+;;                       (note-to-freq (scancode-to-note scancode))
+;;                       (pos-to-time pos)))
+;;               (when (sdl2:scancode= (sdl2:scancode-value keysym) :scancode-escape)
+;;                 (sdl2:push-event :quit)))
+;;       (:idle ()
+;;              (let ((processed (al:get-source source :buffers-processed)))
+;;                (when (> processed 0)
+;;                  (let ((free-buffers (al:source-unqueue-buffers source processed)))
+;;                    ;; keep playing
+;;                    (setf pos (stream-buffers instrument pos source free-buffers)))))
+;;              (sdl2:render-clear ren)
+;;              (sdl2:render-copy ren tex)
+;;              (sdl2:render-present ren))
+;;       (:quit () t))
+;;     (format t "Exiting main loop.~%") (finish-output)))
+
+;; (defun keyboard ()
+;;   (sdl2:with-init (:everything)
+;;     (sdl2:with-window (win :flags '(:shown))
+;;       (sdl2:with-renderer (ren win :flags '(:accelerated :presentvsync))
+;;         (with-al-context
+;;             (al:with-source (source)
+;;               (al:with-buffers (*buffer-count* buffers)
+;;                 (keyboard-loop source buffers ren))))))))

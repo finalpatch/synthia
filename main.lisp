@@ -10,12 +10,6 @@
 
 ;; OpenAL helpers
 ;; -------------------------------------------------------------
-(defmacro with-al-context (&body body)
-  `(alc:with-device (device)
-     (alc:with-context (context device)
-       (alc:make-context-current context)
-       ,@body)))
-
 (defun fill-al-buffer (buffer data)
   "Fill an OpenAL buffer with a lisp array of numbers between 0.0 and 1.0"
   (let* ((sample-width 2)
@@ -253,54 +247,21 @@
 (defclass keyboard-window (sdl2.kit:window)
   ((renderer)
    (texture)
-   (al-device)
-   (al-context)
-   (al-source)
-   (al-buffers)
-   (ins)
-   (position :initform 0)
-   (timer)))
-
-(cffi:defcallback timercb :uint32 ((interval :uint32) (param :pointer))
-  (let* ((window-id (cffi:pointer-address param))
-         (window (sdl2.kit:window-from-id window-id)))
-    (with-slots (al-source ins position) window
-      (let ((processed (al:get-source al-source :buffers-processed)))
-        (when (> processed 0)
-          (let ((free-buffers (al:source-unqueue-buffers al-source processed)))
-            ;; (format t "~a free buffers~%" free-buffers)
-            ;; keep playing
-            (setf position (stream-buffers ins position al-source free-buffers))
-            )))))
-  10)
+   (engine)))
 
 (defmethod sdl2.kit:initialize-window progn ((window keyboard-window) &key &allow-other-keys)
-  (with-slots (sdl2.kit::sdl-window renderer texture
-               al-device al-context al-source al-buffers
-               ins position timer) window
+  (with-slots (sdl2.kit::sdl-window renderer texture engine) window
     (setf renderer (sdl2:create-renderer sdl2.kit::sdl-window nil '(:accelerated :presentvsync)))
     (setf texture (sdl2:create-texture-from-surface renderer (sdl2-image:load-image "keyboard.png")))
-    (setf al-device (alc:open-device nil))
-    (setf al-context (alc:create-context al-device))
-    (alc:make-context-current al-context)
-    (setf al-source (al:gen-source))
-    (setf al-buffers (al:gen-buffers *buffer-count*))
-    (setf ins (make-instance 'instrument))
-    (setf position (stream-buffers ins 0 al-source al-buffers))
-    (setf timer (sdl2:add-timer 10 (cffi:callback timercb)
-                                (cffi:make-pointer (sdl2.kit:sdl-window-id window)))))
+    (setf engine (make-instance 'audio-engine))
+    (init engine))
   (format t "Keyboard window initialized~%"))
 
 (defmethod sdl2.kit:close-window ((window keyboard-window))
-  (with-slots (renderer texture al-device al-context al-source al-buffers timer) window
-    (sdl2:remove-timer timer)
+  (with-slots (renderer texture engine) window
     (sdl2:destroy-texture texture)
     (sdl2:destroy-renderer renderer)
-    (al:delete-buffers al-buffers)
-    (al:delete-source al-source)
-    (alc:make-context-current (cffi:null-pointer))
-    (alc:destroy-context al-context)
-    (alc:close-device al-device))
+    (fini engine))
   (format t "Keyboard window closed~%")
   (call-next-method))
 
@@ -311,22 +272,15 @@
     (sdl2:render-present renderer)))
 
 (defmethod sdl2.kit:keyboard-event ((window keyboard-window) state ts repeat-p keysym)
-  (let ((scancode (sdl2:scancode-value keysym)))
-    (with-slots (ins position) window
-
-      (cond
-        ((sdl2:scancode= scancode :scancode-escape)
-         (sdl2.kit:close-window window))
-        
-        ((and (eq state :keydown) (not repeat-p))
-         (start ins
-                (note-to-freq (scancode-to-note scancode))
-                (pos-to-time position)))
-        ((eq state :keyup)
-         (stop ins
-               (note-to-freq (scancode-to-note scancode))
-               (pos-to-time position)))
-      ))))
+  (let ((scancode (sdl2:scancode-value keysym))
+        (engine (slot-value window 'engine)))
+    (cond
+      ((sdl2:scancode= scancode :scancode-escape)
+       (sdl2.kit:close-window window))
+      ((and (eq state :keydown) (not repeat-p))
+       (start-sound engine (note-to-freq (scancode-to-note scancode))))
+      ((eq state :keyup)
+       (stop-sound engine (note-to-freq (scancode-to-note scancode)))))))
 
 (sdl2.kit:define-start-function keyboard (&key (w 800) (h 600))
   (make-instance 'keyboard-window :w w :h h))

@@ -8,20 +8,6 @@
 (defparameter *audio-buffer* (make-array 512))
 (defparameter *buffer-count* 4)
 
-;; OpenAL helpers
-;; -------------------------------------------------------------
-(defun fill-al-buffer (buffer data)
-  "Fill an OpenAL buffer with a lisp array of numbers between 0.0 and 1.0"
-  (let* ((sample-width 2)
-         (size (length data))
-         (scale (1- (ash 1 (1- (* 8 sample-width))))))
-    (cffi:with-foreign-object (device-array :short size)
-      (dotimes (i size)
-        (setf (cffi:mem-aref device-array :short i)
-              (round (* (elt data i) scale))))
-      (al:buffer-data buffer :mono16 device-array
-                      (* size sample-width) *sample-rate*))))
-
 ;; Oscillators
 ;; -------------------------------------------------------------
 (defun osc-zero (freq time)
@@ -89,7 +75,7 @@
   (with-slots (note-on start-time stop-time
                attack-time decay-time sustain-amplitude release-time)
       ins
-    (max 
+    (max
      (if note-on
          (cond
            ;; attack
@@ -140,7 +126,7 @@
                   (position :A *music-scale*))))
         (* 440 (expt twelveth-root-of-2 k)))))
 
-;; Keyboard
+;; Audio Engine
 ;; -------------------------------------------------------------
 (defun pos-to-time (pos) (/ pos *sample-rate*))
 
@@ -148,6 +134,18 @@
   (dotimes (i (length sample-array))
     (setf (aref sample-array i)
           (compute-sample ins (pos-to-time (+ pos i))))))
+
+(defun fill-al-buffer (buffer data)
+  "Fill an OpenAL buffer with a lisp array of numbers between 0.0 and 1.0"
+  (let* ((sample-width 2)
+         (size (length data))
+         (scale (1- (ash 1 (1- (* 8 sample-width))))))
+    (cffi:with-foreign-object (device-array :short size)
+      (dotimes (i size)
+        (setf (cffi:mem-aref device-array :short i)
+              (round (* (elt data i) scale))))
+      (al:buffer-data buffer :mono16 device-array
+                      (* size sample-width) *sample-rate*))))
 
 (defun stream-buffers (instrument pos source buffers)
   ;; fill buffers with new samples
@@ -163,47 +161,16 @@
     (unless (equal state :playing) (al:source-play source)))
   pos)
 
-(defmacro keyboard-map (kbmap)
-  (cons 'cond (append 
-         (loop for entry in kbmap
-               collect
-               `((sdl2:scancode=
-                  scancode
-                  ,(intern (concatenate 'string "SCANCODE-"
-                                        (string-upcase (car entry)))
-                           :keyword))
-                 ,(cadr entry)))
-         '((t :R)))))
-
-(defun scancode-to-note (scancode)
-  (keyboard-map ((:z :C)
-     (:x :D) (:c :E) (:v :F) (:b :G) (:n :A) (:m :B)
-     (:s :C#) (:d :D#) (:g :F#) (:h :G#) (:j :A#)    
-     (:q :C2) (:w :D2) (:e :E2) (:r :F2) (:t :G2) (:y :A2) (:u :B2)
-     (:2 :C2#) (:3 :D2#) (:5 :F2#) (:6 :G2#) (:7 :A2#)    
-     (:i :C3) (:o :D3) (:p :E3)    
-     (:9 :C3#) (:0 :D3#))))
-
 (defclass audio-engine ()
   ((lock :initform (bt:make-lock) :accessor lock)
+   (finished :initform nil :accessor finished)
    (al-device)
    (al-context)
    (al-source)
    (al-buffers)
    (instrument)
    (position)
-   (thread)
-   (finished :initform nil :accessor finished)))
-
-(defmethod start-sound ((engine audio-engine) freq)
-  (bt:with-lock-held ((lock engine))
-    (with-slots (instrument position) engine
-      (start instrument freq (pos-to-time position)))))
-
-(defmethod stop-sound ((engine audio-engine) freq)
-  (bt:with-lock-held ((lock engine))
-    (with-slots (instrument position) engine
-      (stop instrument freq (pos-to-time position)))))
+   (thread)))
 
 (defmethod init ((engine audio-engine))
   (with-slots (al-device al-context al-source al-buffers instrument position thread finished) engine
@@ -228,15 +195,25 @@
     (alc:destroy-context al-context)
     (alc:close-device al-device)))
 
+(defmethod start-sound ((engine audio-engine) freq)
+  (bt:with-lock-held ((lock engine))
+    (with-slots (instrument position) engine
+      (start instrument freq (pos-to-time position)))))
+
+(defmethod stop-sound ((engine audio-engine) freq)
+  (bt:with-lock-held ((lock engine))
+    (with-slots (instrument position) engine
+      (stop instrument freq (pos-to-time position)))))
+
 (defmethod audio-thread ((engine audio-engine))
   (loop do
     (bt:with-lock-held ((lock engine))
       (if (finished engine)
           (return)
-          (process-audio engine)))
+          (process-audio-buffers engine)))
     (sleep 0.01)))
 
-(defmethod process-audio ((engine audio-engine))
+(defmethod process-audio-buffers ((engine audio-engine))
   (with-slots (al-device al-context al-source al-buffers instrument position) engine
     (let ((processed (al:get-source al-source :buffers-processed)))
       (when (> processed 0)
@@ -244,6 +221,8 @@
           ;; keep playing
           (setf position (stream-buffers instrument position al-source free-buffers)))))))
 
+;; Keyboard
+;; -------------------------------------------------------------
 (defclass keyboard-window (sdl2.kit:window)
   ((renderer)
    (texture)
@@ -270,6 +249,26 @@
     (sdl2:render-clear renderer)
     (sdl2:render-copy renderer texture)
     (sdl2:render-present renderer)))
+
+(defmacro keyboard-map (kbmap)
+  (cons 'cond (append
+         (loop for entry in kbmap
+               collect
+               `((sdl2:scancode=
+                  scancode
+                  ,(intern (concatenate 'string "SCANCODE-"
+                                        (string-upcase (car entry)))
+                           :keyword))
+                 ,(cadr entry)))
+         '((t :R)))))
+
+(defun scancode-to-note (scancode)
+  (keyboard-map ((:z :C) (:x :D) (:c :E) (:v :F) (:b :G) (:n :A) (:m :B)
+     (:s :C#) (:d :D#) (:g :F#) (:h :G#) (:j :A#)
+     (:q :C2) (:w :D2) (:e :E2) (:r :F2) (:t :G2) (:y :A2) (:u :B2)
+     (:2 :C2#) (:3 :D2#) (:5 :F2#) (:6 :G2#) (:7 :A2#)
+     (:i :C3) (:o :D3) (:p :E3)
+     (:9 :C3#) (:0 :D3#))))
 
 (defmethod sdl2.kit:keyboard-event ((window keyboard-window) state ts repeat-p keysym)
   (let ((scancode (sdl2:scancode-value keysym))

@@ -158,9 +158,10 @@
     (setf thread (bt:make-thread (lambda () (audio-thread engine))))))
 
 (defmethod fini ((engine audio-engine))
-    (bt:with-lock-held ((lock engine))
-      (setf (finished engine) t))
-    (bt:join-thread (slot-value engine 'thread))
+  (bt:with-lock-held ((lock engine))
+    (setf (finished engine) t))
+  (when (bt:thread-alive-p (slot-value engine 'thread))
+    (bt:join-thread (slot-value engine 'thread)))
   (with-slots (al-device al-context al-source al-buffers) engine
     (al:delete-buffers al-buffers)
     (al:delete-source al-source)

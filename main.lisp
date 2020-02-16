@@ -19,7 +19,7 @@
   (1- (random 2.0)))
 
 (defun osc-sine (freq time)
-    (sin (* freq 2 pi time)))
+  (sin (* freq 2 pi time)))
 
 (defun osc-square (freq time)
   (if (> (osc-sine freq time) 0)
@@ -101,11 +101,11 @@
        (envelop ins time-since-start)
        (+
         (* 0.4 (modulate (osc ins)
-                  freq
-                  #'osc-sine
-                  5
-                  0.001
-                  time-since-start))
+                         freq
+                         #'osc-sine
+                         5
+                         0.001
+                         time-since-start))
         (* 0.2  (osc-square (* freq 1.5) time-since-start))
         (* 0.1  (osc-square (* freq 2) time-since-start))
         (* 0.05 (osc-random 0 0))
@@ -146,7 +146,8 @@
   (/ (slot-value engine 'position) *sample-rate*))
 
 (defmethod init ((engine audio-engine))
-  (with-slots (al-device al-context al-source al-buffers instrument thread position finished) engine
+  (with-slots (al-device al-context al-source al-buffers
+               instrument thread position finished) engine
     (setf al-device (alc:open-device nil))
     (setf al-context (alc:create-context al-device))
     (alc:make-context-current al-context)
@@ -158,11 +159,11 @@
     (setf thread (bt:make-thread (lambda () (audio-thread engine))))))
 
 (defmethod fini ((engine audio-engine))
-  (bt:with-lock-held ((lock engine))
-    (setf (finished engine) t))
-  (when (bt:thread-alive-p (slot-value engine 'thread))
-    (bt:join-thread (slot-value engine 'thread)))
-  (with-slots (al-device al-context al-source al-buffers) engine
+  (with-slots (al-device al-context al-source al-buffers thread) engine
+    (bt:with-lock-held ((lock engine))
+      (setf (finished engine) t))
+    (when (bt:thread-alive-p thread)
+      (bt:join-thread thread))
     (al:delete-buffers al-buffers)
     (al:delete-source al-source)
     (alc:make-context-current (cffi:null-pointer))
@@ -250,23 +251,23 @@
 
 (defmacro keyboard-map (kbmap)
   (cons 'cond (append
-         (loop for entry in kbmap
-               collect
-               `((sdl2:scancode=
-                  scancode
-                  ,(intern (concatenate 'string "SCANCODE-"
-                                        (string-upcase (car entry)))
-                           :keyword))
-                 ,(cadr entry)))
-         '((t :R)))))
+               (loop for entry in kbmap
+                     collect
+                     `((sdl2:scancode=
+                        scancode
+                        ,(intern (concatenate 'string "SCANCODE-"
+                                              (string-upcase (car entry)))
+                                 :keyword))
+                       ,(cadr entry)))
+               '((t :R)))))
 
 (defun scancode-to-note (scancode)
   (keyboard-map ((:z :C) (:x :D) (:c :E) (:v :F) (:b :G) (:n :A) (:m :B)
-     (:s :C#) (:d :D#) (:g :F#) (:h :G#) (:j :A#)
-     (:q :C2) (:w :D2) (:e :E2) (:r :F2) (:t :G2) (:y :A2) (:u :B2)
-     (:2 :C2#) (:3 :D2#) (:5 :F2#) (:6 :G2#) (:7 :A2#)
-     (:i :C3) (:o :D3) (:p :E3)
-     (:9 :C3#) (:0 :D3#))))
+                 (:s :C#) (:d :D#) (:g :F#) (:h :G#) (:j :A#)
+                 (:q :C2) (:w :D2) (:e :E2) (:r :F2) (:t :G2) (:y :A2) (:u :B2)
+                 (:2 :C2#) (:3 :D2#) (:5 :F2#) (:6 :G2#) (:7 :A2#)
+                 (:i :C3) (:o :D3) (:p :E3)
+                 (:9 :C3#) (:0 :D3#))))
 
 (defmethod sdl2.kit:keyboard-event ((window keyboard-window) state ts repeat-p keysym)
   (let ((scancode (sdl2:scancode-value keysym))

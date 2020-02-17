@@ -2,13 +2,17 @@
 
 ;; Keyboard
 ;; -------------------------------------------------------------
+
+(defparameter *keyboard-png-path*
+  (asdf:system-relative-pathname 'synthia #p"keyboard.png"))
+
 (defclass keyboard-window (sdl2.kit:window)
   ((renderer) (texture) (engine)))
 
 (defmethod sdl2.kit:initialize-window progn ((window keyboard-window) &key &allow-other-keys)
   (with-slots (sdl2.kit::sdl-window renderer texture engine) window
     (setf renderer (sdl2:create-renderer sdl2.kit::sdl-window nil '(:accelerated :presentvsync)))
-    (setf texture (sdl2:create-texture-from-surface renderer (sdl2-image:load-image "keyboard.png")))
+    (setf texture (sdl2:create-texture-from-surface renderer (sdl2-image:load-image *keyboard-png-path*)))
     (setf engine (make-instance 'audio-engine))
     (init engine))
   (format t "Keyboard window initialized~%"))

@@ -58,32 +58,33 @@
     (setf start-time time)))
 
 (defmethod stop ((ins instrument) freq time)
-  (with-slots (frequency note-on stop-time) ins
-    (when (equal freq frequency)
-      (setf note-on nil)
-      (setf stop-time time))))
+  (with-slots (frequency note-on start-time stop-time attack-time decay-time) ins
+    (let ((min-stop-time (+ start-time attack-time decay-time)))
+      (when (equal freq frequency)
+        (setf note-on nil)
+        (setf stop-time (max min-stop-time time))))))
 
 (defmethod envelop ((ins instrument) time-since-start)
   (with-slots (note-on start-time stop-time
                attack-time decay-time sustain-amplitude release-time)
       ins
     (max
-     (if note-on
-         (cond
-           ;; attack
-           ((< time-since-start attack-time)
-            (/ time-since-start attack-time))
-           ;; decay
-           ((< time-since-start (+ attack-time decay-time));)
-            (- 1 (* (- 1 sustain-amplitude)
-                    (/ (- time-since-start attack-time) decay-time))))
-           ;; sustain
-           (t sustain-amplitude))
-         ;; release
          (let ((time-since-stop
-                 (- (+ time-since-start start-time) stop-time))
+                 (max 0 (- (+ time-since-start start-time) stop-time)))
                (slope (/ sustain-amplitude release-time)))
-           (- sustain-amplitude (* time-since-stop slope))))
+           (if (or note-on (= time-since-stop 0))
+               (cond
+                 ;; attack
+                 ((< time-since-start attack-time)
+                  (/ time-since-start attack-time))
+                 ;; decay
+                 ((< time-since-start (+ attack-time decay-time)) ;)
+                  (- 1 (* (- 1 sustain-amplitude)
+                          (/ (- time-since-start attack-time) decay-time))))
+                 ;; sustain
+                 (t sustain-amplitude))
+               ;; release
+               (- sustain-amplitude (* time-since-stop slope))))
      0)))
 
 (defmethod compute-sample ((ins instrument) time)

@@ -82,7 +82,7 @@
 (defmethod audio-thread ((engine audio-engine))
   (cffi:with-foreign-object (audio-buffer :short *buffer-size*)
     (setf (audio-buffer engine) audio-buffer)
-    (with-slots (al-source al-buffers instrument) engine
+    (with-slots (al-source al-buffers) engine
       (stream-buffers engine al-buffers))
     (loop
       (bt:with-lock-held ((lock engine))
@@ -92,7 +92,7 @@
       (sleep 0.01))))
 
 (defmethod process-audio-buffers ((engine audio-engine))
-  (with-slots (al-device al-context al-source al-buffers instrument position) engine
+  (with-slots (al-device al-context al-source al-buffers position) engine
     (let ((processed (al:get-source al-source :buffers-processed)))
       (when (> processed 0)
         (let ((free-buffers (al:source-unqueue-buffers al-source processed)))

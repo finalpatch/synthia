@@ -25,7 +25,7 @@
     (alc:make-context-current al-context)
     (setf al-source (al:gen-source))
     (setf al-buffers (al:gen-buffers buffer-count))
-    (setf instrument (make-instance 'instrument))
+    (setf instrument (make-instance 'hamonica))
     (setf finished nil)
     (setf position 0)
     (setf thread (bt:make-thread (lambda () (audio-thread engine))))))

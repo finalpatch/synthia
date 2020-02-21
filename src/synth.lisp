@@ -41,16 +41,15 @@
 (defclass instrument ()
   ((oscillator :initform 'osc-square :reader osc)
    (frequency :initform 0 :accessor freq)
-
-   (attack-slope :initform 20)
-   (decay-slope :initform -20)
-   (sustain-level :initform 0.7)
-   (release-slope :initform -0.3)
-
    (last-time :initform 0)
-   ;; :attack :decay :sustain :release
    (phase :initform :idle)
    (level :initform 0)))
+
+(defgeneric attack-slope (ins))
+(defgeneric decay-slope (ins))
+(defgeneric sustain-level (ins))
+(defgeneric release-slope (ins))
+(defgeneric compute-sample (ins time))
 
 (defmethod start ((ins instrument) freq time)
   (with-slots (frequency phase last-time) ins
@@ -64,16 +63,16 @@
       (setf phase :release))))
 
 (defmethod get-slope ((ins instrument))
-  (with-slots (phase attack-slope decay-slope release-slope) ins
+  (with-slots (phase) ins
     (cond
       ((eq phase :idle) 0)
-      ((eq phase :attack) attack-slope)
-      ((eq phase :decay) decay-slope)
+      ((eq phase :attack) (attack-slope ins))
+      ((eq phase :decay) (decay-slope ins))
       ((eq phase :sustain) 0)
-      ((eq phase :release) release-slope))))
+      ((eq phase :release) (release-slope ins)))))
 
 (defmethod envelop ((ins instrument) time)
-  (with-slots (last-time level sustain-level phase) ins
+  (with-slots (last-time level phase) ins
     (let ((slope (get-slope ins))
           (delta-time (- time last-time)))
       (setf last-time time)
@@ -84,8 +83,8 @@
          (setf level 1)
          (setf phase :decay))
         ;; decay->sustain
-        ((and (eq phase :decay) (< level sustain-level))
-         (setf level sustain-level)
+        ((and (eq phase :decay) (< level (sustain-level ins)))
+         (setf level (sustain-level ins))
          (setf phase :sustain))
         ;; release->idle
         ((and (eq phase :release) (< level 0))
@@ -93,7 +92,15 @@
          (setf phase :idle)))
       level)))
 
-(defmethod compute-sample ((ins instrument) time)
+(defclass hamonica (instrument)
+  ())
+
+(defmethod attack-slope ((ins hamonica)) 20)
+(defmethod decay-slope ((ins hamonica)) -20)
+(defmethod sustain-level ((ins hamonica)) 0.7)
+(defmethod release-slope ((ins hamonica)) -0.3)
+
+(defmethod compute-sample ((ins hamonica) time)
   (let ((freq (freq ins)))
     (* 0.5
        (envelop ins time)

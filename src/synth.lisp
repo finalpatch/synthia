@@ -41,66 +41,71 @@
 (defclass instrument ()
   ((oscillator :initform 'osc-square :reader osc)
    (frequency :initform 0 :accessor freq)
-   (start-time :initform 0 :accessor start-time)
-   (stop-time :initform 0 :accessor stop-time)
 
-   (attack-time :initform 0.05)
-   (decay-time :initform 0.02)
-   (sustain-amplitude :initform 0.7)
-   (release-time :initform 0.2)
+   (attack-slope :initform 20)
+   (decay-slope :initform -20)
+   (sustain-level :initform 0.7)
+   (release-slope :initform -0.3)
 
-   (note-on :initform nil)))
+   (last-time :initform 0)
+   ;; :attack :decay :sustain :release
+   (phase :initform :idle)
+   (level :initform 0)))
 
 (defmethod start ((ins instrument) freq time)
-  (with-slots (frequency note-on start-time stop-time) ins
-    (setf note-on t)
+  (with-slots (frequency phase last-time) ins
     (setf frequency freq)
-    (setf start-time time)))
+    (setf last-time time)
+    (setf phase :attack)))
 
 (defmethod stop ((ins instrument) freq time)
-  (with-slots (frequency note-on start-time stop-time attack-time decay-time) ins
-    (let ((min-stop-time (+ start-time attack-time decay-time)))
-      (when (equal freq frequency)
-        (setf note-on nil)
-        (setf stop-time (max min-stop-time time))))))
+  (with-slots (frequency phase) ins
+    (when (= frequency freq)
+      (setf phase :release))))
 
-(defmethod envelop ((ins instrument) time-since-start)
-  (with-slots (note-on start-time stop-time
-               attack-time decay-time sustain-amplitude release-time)
-      ins
-    (max
-         (let ((time-since-stop
-                 (max 0 (- (+ time-since-start start-time) stop-time)))
-               (slope (/ sustain-amplitude release-time)))
-           (if (or note-on (= time-since-stop 0))
-               (cond
-                 ;; attack
-                 ((< time-since-start attack-time)
-                  (/ time-since-start attack-time))
-                 ;; decay
-                 ((< time-since-start (+ attack-time decay-time)) ;)
-                  (- 1 (* (- 1 sustain-amplitude)
-                          (/ (- time-since-start attack-time) decay-time))))
-                 ;; sustain
-                 (t sustain-amplitude))
-               ;; release
-               (- sustain-amplitude (* time-since-stop slope))))
-     0)))
+(defmethod get-slope ((ins instrument))
+  (with-slots (phase attack-slope decay-slope release-slope) ins
+    (cond
+      ((eq phase :idle) 0)
+      ((eq phase :attack) attack-slope)
+      ((eq phase :decay) decay-slope)
+      ((eq phase :sustain) 0)
+      ((eq phase :release) release-slope))))
+
+(defmethod envelop ((ins instrument) time)
+  (with-slots (last-time level sustain-level phase) ins
+    (let ((slope (get-slope ins))
+          (delta-time (- time last-time)))
+      (setf last-time time)
+      (setf level (+ level (* delta-time slope)))
+      (cond
+        ;; attack->decay
+        ((and (eq phase :attack) (> level 1))
+         (setf level 1)
+         (setf phase :decay))
+        ;; decay->sustain
+        ((and (eq phase :decay) (< level sustain-level))
+         (setf level sustain-level)
+         (setf phase :sustain))
+        ;; release->idle
+        ((and (eq phase :release) (< level 0))
+         (setf level 0)
+         (setf phase :idle)))
+      level)))
 
 (defmethod compute-sample ((ins instrument) time)
-  (let ((time-since-start (- time (start-time ins)))
-        (freq (freq ins)))
+  (let ((freq (freq ins)))
     (* 0.5
-       (envelop ins time-since-start)
+       (envelop ins time)
        (+
         (* 0.4 (modulate (osc ins)
                          freq
                          #'osc-sine
                          5
                          0.001
-                         time-since-start))
-        (* 0.2  (osc-square (* freq 1.5) time-since-start))
-        (* 0.1  (osc-square (* freq 2) time-since-start))
+                         time))
+        (* 0.2  (osc-square (* freq 1.5) time))
+        (* 0.1  (osc-square (* freq 2) time))
         (* 0.05 (osc-random 0 0))
         ))))
 

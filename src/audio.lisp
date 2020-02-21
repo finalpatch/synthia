@@ -60,7 +60,7 @@
   (with-slots (instrument position buffer-size sample-rate audio-buffer) engine
     (let* ((sample-width 2)
            (scale (1- (ash 1 (1- (* 8 sample-width))))))
-      (dotimes (i *buffer-size*)
+      (dotimes (i buffer-size)
         (setf (cffi:mem-aref audio-buffer :short i)
               (round (* scale (compute-sample instrument (wall-time engine)))))
         (incf position))
@@ -80,16 +80,17 @@
       (unless (equal state :playing) (al:source-play al-source)))))
 
 (defmethod audio-thread ((engine audio-engine))
-  (cffi:with-foreign-object (audio-buffer :short *buffer-size*)
-    (setf (audio-buffer engine) audio-buffer)
-    (with-slots (al-source al-buffers) engine
-      (stream-buffers engine al-buffers))
-    (loop
-      (bt:with-lock-held ((lock engine))
-        (if (finished engine)
-            (return)
-            (process-audio-buffers engine)))
-      (sleep 0.01))))
+  (with-slots (audio-buffer buffer-size) engine
+    (cffi:with-foreign-object (scoped-buffer :short buffer-size)
+      (setf audio-buffer scoped-buffer)
+      (with-slots (al-source al-buffers) engine
+        (stream-buffers engine al-buffers))
+      (loop
+        (bt:with-lock-held ((lock engine))
+          (if (finished engine)
+              (return)
+              (process-audio-buffers engine)))
+        (sleep 0.01)))))
 
 (defmethod process-audio-buffers ((engine audio-engine))
   (with-slots (al-device al-context al-source al-buffers position) engine

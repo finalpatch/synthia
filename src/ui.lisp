@@ -51,6 +51,16 @@
                  (:i :C3) (:o :D3) (:p :E3)
                  (:9 :C3#) (:0 :D3#))))
 
+(defparameter *tones* (make-hash-table))
+
+(defun get-tone (note)
+  (let ((tone (gethash note *tones*)))
+    (unless tone
+      (setf tone
+            (setf (gethash note *tones*)
+                  (make-instance 'hamonica :freq  (note-to-freq note)))))
+    tone))
+
 (defmethod sdl2.kit:keyboard-event ((window keyboard-window) state ts repeat-p keysym)
   (let ((scancode (sdl2:scancode-value keysym))
         (engine (slot-value window 'engine)))
@@ -58,9 +68,9 @@
       ((sdl2:scancode= scancode :scancode-escape)
        (sdl2.kit:close-window window))
       ((and (eq state :keydown) (not repeat-p))
-       (start-sound engine (note-to-freq (scancode-to-note scancode))))
+       (start-sound engine (get-tone (scancode-to-note scancode))))
       ((eq state :keyup)
-       (stop-sound engine (note-to-freq (scancode-to-note scancode)))))))
+       (stop-sound engine (get-tone (scancode-to-note scancode)))))))
 
 (sdl2.kit:define-start-function keyboard (&key (w 800) (h 600))
   (make-instance 'keyboard-window :w w :h h))

@@ -39,8 +39,8 @@
 ;; Envelopes (ADSR)
 ;; -------------------------------------------------------------
 (defclass instrument ()
-  ((oscillator :initform 'osc-square :reader osc)
-   (frequency :initform 0 :accessor freq)
+  ((frequency :initform 0 :reader freq)
+   (oscillator :initform 'osc-square :reader osc)
    (last-time :initform 0)
    (phase :initform :idle)
    (level :initform 0)))
@@ -51,16 +51,14 @@
 (defgeneric release-slope (ins))
 (defgeneric compute-sample (ins time))
 
-(defmethod start ((ins instrument) freq time)
+(defmethod start ((ins instrument) time)
   (with-slots (frequency phase last-time) ins
-    (setf frequency freq)
     (setf last-time time)
     (setf phase :attack)))
 
-(defmethod stop ((ins instrument) freq time)
-  (with-slots (frequency phase) ins
-    (when (= frequency freq)
-      (setf phase :release))))
+(defmethod stop ((ins instrument) time)
+  (with-slots (phase) ins
+    (setf phase :release)))
 
 (defmethod get-slope ((ins instrument))
   (with-slots (phase) ins
@@ -92,8 +90,11 @@
          (setf phase :idle)))
       level)))
 
+(defmethod is-idle ((ins instrument))
+  (eq :idle (slot-value ins 'phase)))
+
 (defclass hamonica (instrument)
-  ())
+  ((frequency :initform 0 :initarg :freq)))
 
 (defmethod attack-slope ((ins hamonica)) 20)
 (defmethod decay-slope ((ins hamonica)) -20)
@@ -101,20 +102,19 @@
 (defmethod release-slope ((ins hamonica)) -0.3)
 
 (defmethod compute-sample ((ins hamonica) time)
-  (let ((freq (freq ins)))
+  (with-slots (frequency) ins
     (* 0.5
        (envelop ins time)
        (+
         (* 0.4 (modulate (osc ins)
-                         freq
+                         frequency
                          #'osc-sine
                          5
                          0.001
                          time))
-        (* 0.2  (osc-square (* freq 1.5) time))
-        (* 0.1  (osc-square (* freq 2) time))
-        (* 0.05 (osc-random 0 0))
-        ))))
+        (* 0.2  (osc-square (* frequency 1.5) time))
+        (* 0.1  (osc-square (* frequency 2) time))
+        (* 0.05 (osc-random 0 0))))))
 
 ;; Musical notes
 ;; -------------------------------------------------------------

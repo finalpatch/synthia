@@ -13,19 +13,18 @@
    (al-context)
    (al-source)
    (al-buffers)
-   (instrument)
+   (voices :initform nil)
    (position :initform 0)
    (thread)))
 
 (defmethod init ((engine audio-engine))
   (with-slots (al-device al-context al-source al-buffers
-               instrument thread position finished buffer-count) engine
+               thread position finished buffer-count) engine
     (setf al-device (alc:open-device nil))
     (setf al-context (alc:create-context al-device))
     (alc:make-context-current al-context)
     (setf al-source (al:gen-source))
     (setf al-buffers (al:gen-buffers buffer-count))
-    (setf instrument (make-instance 'hamonica))
     (setf finished nil)
     (setf position 0)
     (setf thread (bt:make-thread (lambda () (audio-thread engine))))))
@@ -46,29 +45,33 @@
   (/ (slot-value engine 'position)
      (slot-value engine 'sample-rate)))
 
-(defmethod start-sound ((engine audio-engine) freq)
+(defmethod start-sound ((engine audio-engine) voice)
   (bt:with-lock-held ((lock engine))
-    (with-slots (instrument) engine
-      (start instrument freq (wall-time engine)))))
+    (with-slots (voices) engine      
+      (start voice (wall-time engine))
+      (setf voices (cons voice voices)))))
 
-(defmethod stop-sound ((engine audio-engine) freq)
+(defmethod stop-sound ((engine audio-engine) voice)
   (bt:with-lock-held ((lock engine))
-    (with-slots (instrument) engine
-      (stop instrument freq (wall-time engine)))))
+    (stop voice (wall-time engine))))
 
 (defmethod fill-al-buffer ((engine audio-engine) buffer)
-  (with-slots (instrument position buffer-size sample-rate audio-buffer) engine
+  (with-slots (voices position buffer-size sample-rate audio-buffer) engine
     (let* ((sample-width 2)
            (scale (1- (ash 1 (1- (* 8 sample-width))))))
       (dotimes (i buffer-size)
-        (setf (cffi:mem-aref audio-buffer :short i)
-              (round (* scale (compute-sample instrument (wall-time engine)))))
+        (let ((amplitude (loop for voice in voices
+                               sum (compute-sample voice (wall-time engine)))))
+          (setf (cffi:mem-aref audio-buffer :short i)
+                (round (* scale (max -1 (min 1 amplitude))))))
         (incf position))
       (al:buffer-data buffer :mono16 audio-buffer
                       (* buffer-size sample-width) sample-rate))))
 
 (defmethod stream-buffers ((engine audio-engine) buffers)
-  (with-slots (al-source) engine
+  (with-slots (al-source voices) engine
+    ;; clean idle voices
+    (setf voices (remove-if #'is-idle voices))
     ;; fill buffers with new samples
     (loop for b in buffers do
       (fill-al-buffer engine b))

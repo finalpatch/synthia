@@ -20,11 +20,11 @@
 (defun osc-triangle (freq time)
   (* (/ 2 pi) (asin (osc-sine freq time))))
 
-(defun osc-saw (freq pos)
+(defun osc-saw (freq time)
   (if (equal 0 freq)
       0
       (let ((period (/ 1 freq)))
-        (1- (* 2 freq (mod pos period))))))
+        (1- (* 2 freq (mod time period))))))
 
 ;; Frequency modulation
 ;; -------------------------------------------------------------

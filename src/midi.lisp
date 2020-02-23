@@ -12,11 +12,12 @@
 
 (defun get-tone (track key)
   (let* ((keys (if (eq track 1) *keys1* *keys2*))
+         (instrument (if (eq track 1) 'hamonica 'bell))
          (tone (gethash key keys)))
     (unless tone
       (setf tone
             (setf (gethash key keys)
-                  (make-instance 'bell :freq  (key-to-freq key)))))
+                  (make-instance instrument :freq  (key-to-freq key)))))
     tone))
 
 (defun wait-for-target-time (msg time-base)
@@ -29,7 +30,7 @@
 
 (defgeneric play-midi-msg (msg track engine time-base)
   (:method (msg track engine time-base)
-    (format t "play ~a~%" msg))
+    (format t "play ~a ~a~%" track msg))
   (:method ((msg midi:note-on-message) track engine time-base)
     (wait-for-target-time msg time-base)
     (format t "key on: ~a~%" (midi:message-key msg))
@@ -67,5 +68,5 @@
                do
                   (let ((tid (car tid-msg))
                         (msg (cadr tid-msg)))
-                    (play-midi-msg tid msg engine time-base)))
+                    (play-midi-msg msg tid engine time-base)))
       (fini engine))))

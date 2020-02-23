@@ -158,7 +158,7 @@
 
 (defmethod compute-sample ((ins hamonica) time)
   (with-slots (frequency) ins
-    (* 0.25
+    (* 0.1
        (envelop ins time)
        (+
         (modulate #'osc-saw (/ frequency 2) #'osc-sine 5 0.001 time)
@@ -175,7 +175,7 @@
 
 (defmethod compute-sample ((ins bell) time)
   (with-slots (frequency) ins
-    (* 0.5
+    (* 0.2
        (envelop ins time)
        (+
         (modulate #'osc-sine frequency #'osc-sine 5 0.001 time)

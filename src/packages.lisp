@@ -1,3 +1,3 @@
 (cl:defpackage :synthia
   (:use :cl)
-  (:export :keyboard))
+  (:export :keyboard :play))

@@ -21,10 +21,10 @@
     tone))
 
 (defun wait-for-target-time (msg time-base)
-  (let ((relative-time (- (get-internal-real-time) time-base))
+  (let ((relative-time (/ (* (- (get-internal-real-time) time-base) 1000)
+                          INTERNAL-TIME-UNITS-PER-SECOND))
         (target-time (midi:message-time msg)))
-    (let ((delay (/ (- target-time relative-time)
-                    INTERNAL-TIME-UNITS-PER-SECOND)))
+    (let ((delay (/ (- target-time relative-time) 1000)))
       (when (> delay 0)
         (sleep delay)))))
 

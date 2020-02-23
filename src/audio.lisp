@@ -61,7 +61,7 @@
            (scale (1- (ash 1 (1- (* 8 sample-width))))))
       (dotimes (i buffer-size)
         (let ((amplitude (loop for voice in voices
-                               sum (compute-sample voice (wall-time engine)))))
+                               sum (get-sample voice (wall-time engine)))))
           (setf (cffi:mem-aref audio-buffer :short i)
                 (round (* scale (max -1 (min 1 amplitude))))))
         (incf position))
@@ -93,7 +93,8 @@
           (if (finished engine)
               (return)
               (process-audio-buffers engine)))
-        (sleep 0.01)))))
+        ;; (sleep 0.01)
+        ))))
 
 (defmethod process-audio-buffers ((engine audio-engine))
   (with-slots (al-device al-context al-source al-buffers position) engine

@@ -39,7 +39,8 @@
     (al:delete-source al-source)
     (alc:make-context-current (cffi:null-pointer))
     (alc:destroy-context al-context)
-    (alc:close-device al-device)))
+    (alc:close-device al-device)
+    (format t "audio thread finished~%")))
 
 (defmethod wall-time ((engine audio-engine))
   (/ (slot-value engine 'position)
@@ -83,6 +84,7 @@
       (unless (equal state :playing) (al:source-play al-source)))))
 
 (defmethod audio-thread ((engine audio-engine))
+  (format t "audio thread started~%")
   (with-slots (audio-buffer buffer-size) engine
     (cffi:with-foreign-object (scoped-buffer :short buffer-size)
       (setf audio-buffer scoped-buffer)

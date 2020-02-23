@@ -123,6 +123,9 @@
          ;; (format t "release->idle~%")
          (setf level 0)
          (setf phase :idle)))
+      (when (and (not (eq phase :attack))
+                 (= level 0))
+        (setf phase :idle))
       level)))
 
 (defmethod is-idle ((ins instrument))
@@ -168,7 +171,7 @@
    (attack-time :initform 0.01)
    (decay-time :initform 1.0)
    (sustain-level :initform 0.0)
-   (release-time :initform 1)))
+   (release-time :initform 0)))
 
 (defmethod compute-sample ((ins bell) time)
   (with-slots (frequency) ins

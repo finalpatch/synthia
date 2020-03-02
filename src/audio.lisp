@@ -3,7 +3,7 @@
 ;; Audio Engine
 ;; -------------------------------------------------------------
 (defclass audio-engine ()
-  ((sample-rate :initform 44100 :allocation :class)
+  ((sample-rate :initform 22050 :allocation :class)
    (buffer-size :initform 512 :allocation :class)
    (buffer-count :initform 6 :allocation :class)
    (lock :initform (bt:make-lock) :accessor lock)

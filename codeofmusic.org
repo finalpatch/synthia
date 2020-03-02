@@ -1,0 +1,53 @@
+#+TITLE: The Code of Music
+
+:SETUP:
+#+STARTUP: showall inlineimages
+#+INFOJS_OPT: view:t toc:t ltoc:0 mouse:underline buttons:0 path:http://thomasf.github.io/solarized-css/org-info.min.js
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="http://thomasf.github.io/solarized-css/solarized-dark.min.css" />
+#+HTML_HEAD: <style>pre.example {background: #001e26;} table{margin: 0 auto;}</style>
+#+BEGIN_SRC lisp :results silent
+  (ql:quickload :eazy-gnuplot)
+  (use-package :eazy-gnuplot)
+  (ql:quickload :synthia)
+  (ensure-directories-exist "images/")
+#+END_SRC
+#+begin_src lisp :results silent
+  (defun plot-waveform (output label duration func)
+    (let ((output (concatenate 'string "images/" output)))
+      (with-plots (*standard-output* :debug nil)
+        (gp-setup :terminal '(svg background "white" size 800 600 font ",20" linewidth 2)
+                  :output output :xlabel "time" :ylabel "amplitude")
+    (gp :set :yrange '("-1.2:1.2"))
+        (plot
+         (lambda ()
+           (loop for time from 0 upto duration by 0.00002
+                 do (format t "~&~a ~a" time (funcall func time))))
+         :with `(:lines title ,label)))
+      output))
+#+end_src
+:END:
+
+* Basic waveforms
+** Sine wave
+   #+begin_src lisp :results file
+   (plot-waveform "sine.svg" "440Hz Sine wave" 0.01
+   (lambda (time) (synthia::osc-sine 440 time)))
+   #+end_src
+
+** Square wave
+   #+begin_src lisp :results file
+   (plot-waveform "square.svg" "440Hz Square wave" 0.01
+   (lambda (time) (synthia::osc-square 440 time)))
+   #+end_src
+
+** Triangle wave
+   #+begin_src lisp :results file
+   (plot-waveform "triangle.svg" "440Hz Triangle wave" 0.01
+   (lambda (time) (synthia::osc-triangle 440 time)))
+   #+end_src
+
+** Saw wave
+   #+begin_src lisp :results file
+   (plot-waveform "saw.svg" "440Hz Saw wave" 0.01
+   (lambda (time) (synthia::osc-saw 440 time)))
+   #+end_src

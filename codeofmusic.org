@@ -18,7 +18,7 @@
 #+BEGIN_SRC lisp :results silent :exports none
   (defparameter *terminal* (if (string= (software-type) "Darwin")
                                '(svg background "white" size 800 600 font ",20" linewidth 2)
-                               '(svg  size 480 360)))
+                               '(svg background "white" size 480 360)))
   ; (defparameter *terminal* '(svg))
   (defun waveform (output label duration func)
     (let ((output (concatenate 'string "images/" output)))
@@ -36,8 +36,6 @@
 
 * Basic waveforms
 ** Sine wave
-   If $a^2=b$ and \( b=2 \), then the solution must be
-   either $$ a=+\sqrt{2} $$ or \[ a=-\sqrt{2} \]
    #+begin_src lisp :results file :exports both
    (waveform "sine.svg" "440Hz Sine wave" 0.01
    (lambda (time) (synthia::osc-sine 440 time)))

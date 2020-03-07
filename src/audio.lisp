@@ -105,3 +105,29 @@
         (let ((free-buffers (al:source-unqueue-buffers al-source processed)))
           ;; keep playing
           (stream-buffers engine free-buffers))))))
+
+
+(defun fill-buffer (buffer data rate)
+  (let* ((size (length data))
+         (sample-width 2)
+         (scale (1- (ash 1 (1- (* 8 sample-width))))))
+    (cffi:with-foreign-object (device-array :short size)
+      (loop for i below size
+            do (setf (cffi:mem-aref device-array :short i)
+                     (floor (* (elt data i) scale))))
+      (al:buffer-data buffer :mono16 device-array
+                      (* size sample-width) rate))))
+
+(defun play (data rate)
+  (let ((engine (make-instance 'audio-engine)))
+    (init engine)
+    (unwind-protect 
+         (bt:with-lock-held ((lock engine))
+           (al:with-buffer (buffer)
+             (fill-buffer buffer data rate)
+             (al:with-source (source)
+               (al:source source :buffer buffer)
+               (al:source-play source)
+               (sleep (/ (length data) rate))
+               (al:source-stop source))))
+      (fini engine))))

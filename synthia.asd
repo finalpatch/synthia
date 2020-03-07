@@ -3,7 +3,7 @@
   :description "Software synthesizer"
   :author "Li Feng <fengli@gmail.com>"
   :licence "public domain"
-  :depends-on (cffi cl-openal cl-alc sdl2 sdl2-image sdl2kit bordeaux-threads midi)
+  :depends-on (cffi cl-openal cl-alc sdl2 sdl2-image sdl2kit bordeaux-threads midi cl-wav)
   :components
   ((:module "src"
     :serial t

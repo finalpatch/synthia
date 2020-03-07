@@ -41,6 +41,7 @@
       (:CHUNK-ID "data" :CHUNK-DATA-SIZE ,(length buffer) :CHUNK-DATA
                  ,buffer))))
 
+;; https://flothesof.github.io/Karplus-Strong-algorithm-Python.html
 (defun karplus_strong (freq time rate)
   (let* ((wavetable (gen-samples (lambda (time) (if (> 1 (random 2.0)) 1 -1)) (/ (floor rate freq) rate) rate))
          (output (make-array (floor (* time rate))))

@@ -118,7 +118,7 @@
       (al:buffer-data buffer :mono16 device-array
                       (* size sample-width) rate))))
 
-(defun play (data rate)
+(defun play-buffer (data rate)
   (let ((engine (make-instance 'audio-engine)))
     (init engine)
     (unwind-protect 
